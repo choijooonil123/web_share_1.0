@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>화면공유 웹(승인제 · WebRTC)</title>
+  <style>
+    :root{ --bg:#0b1020; --panel:#10183a; --ink:#eaf0ff; --muted:#a7b3d4; --brand:#6aa6ff; --ok:#4cd97b; --danger:#ff6a6a; }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:ui-sans-serif,system-ui,Apple SD Gothic Neo,Noto Sans KR,Segoe UI,Roboto,sans-serif;color:var(--ink);background:radial-gradient(1000px 700px at 80% -10%,#1a2650 0%,#0b1020 45%)}
+    header{padding:18px 20px 10px;display:flex;gap:12px;align-items:center;justify-content:space-between}
+    h1{margin:0;font-size:18px}
+    main{padding:16px;display:grid;gap:16px;grid-template-columns:1fr 360px}
+    .card{background:rgba(16,24,58,.8);border:1px solid #22306b;border-radius:16px;padding:14px;box-shadow:0 8px 30px rgba(0,0,0,.25)}
+    label{display:block;margin-top:8px;font-size:14px;color:var(--muted)}
+    input[type="text"]{width:100%;padding:10px;border-radius:12px;border:1px solid #2a3a77;background:#0d1433;color:#eaf0ff}
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    button{padding:10px 14px;border-radius:12px;border:1px solid #2a3a77;background:#101a45;color:#eaf0ff;cursor:pointer}
+    button.primary{background:linear-gradient(180deg,#2b5bd1,#2048a8)}
+    button.danger{background:linear-gradient(180deg,#c24,#932)}
+    small{color:var(--muted)}
+    video{width:100%;background:#000;border-radius:12px}
+    ul{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:8px}
+    li{padding:10px;border:1px solid #2a3a77;border-radius:12px;background:#0f173b;display:flex;justify-content:space-between;align-items:center}
+    .tag{font-size:12px;padding:3px 8px;border-radius:999px;background:#1b285c;color:#cfe0ff;border:1px solid #2a3a77}
+    .muted{color:var(--muted)}
+    .hint{font-size:12px;color:#a7b3d4}
+    footer{padding:10px 16px;color:#a7b3d4;font-size:12px;text-align:center}
+    .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    #toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#0d1433;border:1px solid #2a3a77;color:#eaf0ff;padding:10px 14px;border-radius:12px;display:none}
+  </style>
+</head>
+<body>
+<header>
+  <h1>화면공유 웹(승인제 · WebRTC)</h1>
+  <div class="row">
+    <span class="tag">P2P 소규모</span>
+    <span class="tag">Firebase RTDB</span>
+    <span class="tag">익명 인증</span>
+  </div>
+</header>
+
+<main>
+  <section class="card">
+    <h2 style="margin:0 0 8px 0">라이브</h2>
+    <!-- iOS 자동재생 정책 대응: muted로 시작 후 버튼으로 해제 -->
+    <video id="player" autoplay playsinline muted controls></video>
+
+    <div class="grid-2" style="margin-top:10px">
+      <div>
+        <label>모드 선택</label>
+        <div class="row">
+          <label class="row"><input type="radio" name="mode" value="presenter" checked> 송출자</label>
+          <label class="row"><input type="radio" name="mode" value="viewer"> 시청자</label>
+        </div>
+      </div>
+      <div>
+        <label>방 코드(Room ID)</label>
+        <input id="roomId" type="text" placeholder="예: rm-k3G7a9fQ2" />
+        <small class="hint">직접 입력 또는 자동 생성</small>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:10px">
+      <button id="genRoom">방 코드 자동생성</button>
+      <button class="primary" id="startBtn">시작</button>
+      <button class="danger" id="stopBtn" disabled>종료</button>
+      <button id="unmuteBtn" style="display:none">🔊 소리 켜기</button>
+    </div>
+
+    <!-- 송출자 오디오 증폭 컨트롤 -->
+    <div id="gainRow" class="row" style="margin-top:8px; display:none">
+      <small class="muted">오디오 증폭:</small>
+      <input id="gainSlider" type="range" min="1" max="3" step="0.1" value="2" />
+      <small class="muted"><span id="gainVal">2.0</span>x</small>
+    </div>
+
+    <div style="margin-top:6px">
+      <small id="status" class="muted">대기 중…</small>
+    </div>
+
+    <div id="presenterHints" style="margin-top:12px;display:none">
+      <small class="hint">
+        * iPad 시청 가능. Safari/Chrome에서 🔊 버튼으로 음소거 해제가 필요합니다. H.264 우선 협상 적용됨.
+      </small>
+    </div>
+  </section>
+
+  <aside class="card">
+    <h3 style="margin-top:0">승인 대기 목록(송출자 전용)</h3>
+    <ul id="pending"></ul>
+    <hr style="border:none;border-top:1px solid #2a3a77;margin:12px 0"/>
+    <div>
+      <h3 style="margin:0 0 8px 0">연결 정보</h3>
+      <div id="info" class="hint">-</div>
+    </div>
+    <hr style="border:none;border-top:1px solid #2a3a77;margin:12px 0"/>
+    <div>
+      <h3 style="margin:0 0 8px 0">로그</h3>
+      <pre id="log" class="hint" style="white-space:pre-wrap;max-height:220px;overflow:auto"></pre>
+    </div>
+  </aside>
+</main>
+
+<footer>
+  대규모 송출은 SFU(LiveKit/Janus/mediasoup 등) 권장 · TURN 서버 추가 시 연결 성공률↑
+</footer>
+
+<div id="toast"></div>
+
+<!-- Firebase SDK (Compat) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+
+<script>
+/** Firebase 설정(사용자 제공 값) */
+const firebaseConfig = {
+  apiKey: "AIzaSyA-007jMq4dO7M6t6wn5vR_PZW9Gg1n0LM",
+  authDomain: "webboard-ea2c4.firebaseapp.com",
+  databaseURL: "https://webboard-ea2c4-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "webboard-ea2c4",
+  storageBucket: "webboard-ea2c4.firebasestorage.app",
+  messagingSenderId: "1063560565058",
+  appId: "1:1063560565058:web:bd9b57bef6dd649f67f8db",
+  measurementId: "G-NTQGQJVW8E"
+};
+firebase.initializeApp(firebaseConfig);
+
+// 익명 로그인 (규칙이 auth != null 인 경우 필수)
+firebase.auth().signInAnonymously().catch(err=>{
+  console.error('Auth failed:', err);
+  alert('Firebase 로그인 실패: ' + err.message);
+});
+
+const db = firebase.database();
+
+/** UI refs */
+const player = document.getElementById('player');
+const roomIdInput = document.getElementById('roomId');
+const statusEl = document.getElementById('status');
+const pendingEl = document.getElementById('pending');
+const infoEl = document.getElementById('info');
+const logEl = document.getElementById('log');
+const presenterHints = document.getElementById('presenterHints');
+const unmuteBtn = document.getElementById('unmuteBtn');
+const startBtn = document.getElementById('startBtn');
+const stopBtn  = document.getElementById('stopBtn');
+const genRoom  = document.getElementById('genRoom');
+const toastEl  = document.getElementById('toast');
+
+// 증폭 컨트롤
+const gainRow    = document.getElementById('gainRow');
+const gainSlider = document.getElementById('gainSlider');
+const gainVal    = document.getElementById('gainVal');
+
+let mode = 'presenter';
+let localStream = null;
+let pc = null; // viewer side
+let roomId = '';
+let viewerId = '';
+let isRunning = false;
+let audioCtx = null;
+let gainNode = null;
+
+/** helpers */
+function logStatus(msg){ statusEl.textContent = msg; }
+function log(msg){ console.log(msg); logEl.textContent += msg + '\n'; logEl.scrollTop = logEl.scrollHeight; }
+function toast(msg){ toastEl.textContent = msg; toastEl.style.display='block'; setTimeout(()=>toastEl.style.display='none', 1800); }
+function randomId(len=10){ const c='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'; let s=''; for(let i=0;i<len;i++) s+=c[Math.floor(Math.random()*c.length)]; return s; }
+
+/** 기본 볼륨 최대로 (시청자측) */
+player.volume = 1.0;
+
+/** 모드 토글 + 증폭 UI 표시 */
+document.querySelectorAll('input[name="mode"]').forEach(r=>{
+  r.addEventListener('change', ()=>{
+    mode = document.querySelector('input[name="mode"]:checked').value;
+    presenterHints.style.display = (mode==='presenter') ? 'block' : 'none';
+    gainRow.style.display = (mode==='presenter') ? 'flex' : 'none';
+  });
+});
+presenterHints.style.display = 'block';
+gainRow.style.display = 'flex';
+
+/** 슬라이더 실시간 반영 */
+if (gainSlider) {
+  gainSlider.addEventListener('input', () => {
+    if (gainNode) {
+      const v = parseFloat(gainSlider.value);
+      gainNode.gain.value = v;
+      gainVal.textContent = v.toFixed(1);
+    }
+  });
+}
+
+/** ICE servers */
+const iceServers = [{ urls: ['stun:stun.l.google.com:19302','stun:stun1.l.google.com:19302'] }];
+function createPeer(){
+  const _pc = new RTCPeerConnection({ iceServers });
+  _pc.oniceconnectionstatechange = () => { infoEl.textContent = 'ICE: ' + _pc.iceConnectionState; };
+  _pc.onconnectionstatechange = () => { infoEl.textContent += ' | PC: ' + _pc.connectionState; };
+  return _pc;
+}
+
+/** URL params: ?mode=viewer&room=XXXX&autostart=1 */
+window.addEventListener('DOMContentLoaded', ()=>{
+  const p = new URLSearchParams(location.search);
+  const m = p.get('mode'); const r = p.get('room'); const a = p.get('autostart');
+  if(m==='viewer'){ document.querySelector('input[name="mode"][value="viewer"]').checked = true; presenterHints.style.display = 'none'; gainRow.style.display='none'; mode='viewer'; }
+  if(r){ roomIdInput.value = r; }
+  if(a==='1'){ setTimeout(()=>startBtn.click(), 400); }
+});
+
+/** autoplay policy helper (iPad 등) */
+function enableAudioPlayback(){
+  try{
+    player.muted = false; // 음소거 해제
+    const p = player.play();
+    if(p && typeof p.then === 'function') p.catch(()=>{});
+    unmuteBtn.style.display='none';
+  }catch(e){}
+}
+unmuteBtn.addEventListener('click', enableAudioPlayback);
+
+/** H.264 우선 협상 (iPad 호환) */
+function preferH264(pc){
+  try{
+    const txs = typeof pc.getTransceivers === 'function' ? pc.getTransceivers() : [];
+    const caps = RTCRtpSender.getCapabilities ? RTCRtpSender.getCapabilities('video') : null;
+    if (!caps || !caps.codecs) return;
+    const h264 = caps.codecs.filter(c => /H264/i.test(c.mimeType));
+    if (!h264.length) return;
+    txs.forEach(t => {
+      const kind = t?.mid ? t?.receiver?.track?.kind : (t?.sender?.track?.kind || t?.kind);
+      if (kind === 'video' && typeof t.setCodecPreferences === 'function') {
+        const others = caps.codecs.filter(c => !/H264/i.test(c.mimeType));
+        t.setCodecPreferences(h264.concat(others));
+      }
+    });
+  }catch(e){ console.warn('preferH264 failed:', e); }
+}
+
+/** 송출자 */
+async function startPresenter(){
+  roomId = (roomIdInput.value || '').replace(/\s+/g,''); // 공백 제거
+  if(!roomId){ roomId = 'rm-' + randomId(9); roomIdInput.value = roomId; }
+
+  let screenStream;
+  try{
+    screenStream = await navigator.mediaDevices.getDisplayMedia({ video:true, audio:true });
+  }catch(e){
+    alert('화면 공유 권한 필요: ' + e.message); return;
+  }
+
+  // Web Audio 준비 + Gain
+  audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+  gainNode = audioCtx.createGain();
+  const initialGain = parseFloat(gainSlider?.value || '2') || 2.0;
+  gainNode.gain.value = initialGain;
+  if (gainVal) gainVal.textContent = initialGain.toFixed(1);
+
+  const videoTracks = screenStream.getVideoTracks();
+  const screenAudioTracks = screenStream.getAudioTracks();
+  let outputAudioTrack = null;
+
+  if (screenAudioTracks.length) {
+    // 시스템/탭 오디오 → 증폭
+    const src = audioCtx.createMediaStreamSource(screenStream);
+    const dest = audioCtx.createMediaStreamDestination();
+    src.connect(gainNode).connect(dest);
+    outputAudioTrack = dest.stream.getAudioTracks()[0];
+  } else {
+    // 오디오가 없으면 마이크 보조 + 증폭
+    try {
+      const mic = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation:true, noiseSuppression:true, autoGainControl:true }
+      });
+      const src = audioCtx.createMediaStreamSource(mic);
+      const dest = audioCtx.createMediaStreamDestination();
+      src.connect(gainNode).connect(dest);
+      outputAudioTrack = dest.stream.getAudioTracks()[0];
+      log('[Presenter] 시스템 오디오 없음 → 마이크 보조 사용');
+    } catch (e) {
+      log('[Presenter] 마이크 획득 실패: ' + e.message);
+    }
+  }
+
+  // 최종 localStream
+  if (outputAudioTrack) {
+    localStream = new MediaStream([...videoTracks, outputAudioTrack]);
+  } else {
+    localStream = new MediaStream([...videoTracks]); // 영상만
+  }
+
+  log('[Presenter] audio track:', localStream.getAudioTracks().map(t=>t.label).join(', ') || '(없음)');
+  player.srcObject = localStream;
+
+  // 시청자 Offer 대기
+  const offersRef = db.ref(`rooms/${roomId}/offers`);
+  offersRef.on('child_added', async snap=>{
+    const vid = snap.key; const data = snap.val();
+    if(!data || !data.sdp) return;
+    addPending(vid, data);
+    log('[Presenter] offer arrived from: ' + vid);
+  });
+
+  isRunning = true;
+  startBtn.disabled = true; stopBtn.disabled = false;
+  logStatus(`송출 중… 방 코드: ${roomId}`);
+  toast('시청자에게 방 코드를 공유하세요');
+}
+
+/** 대기열 UI */
+function addPending(vid, data){
+  const li = document.createElement('li');
+  li.id = `pending-${vid}`;
+  li.innerHTML = `
+    <div>
+      <div><b>시청자</b> <span class="tag">${vid}</span></div>
+      <div class="muted" style="font-size:12px">오퍼 수신</div>
+    </div>
+    <div class="row">
+      <button class="primary">허용</button>
+      <button class="danger">거절</button>
+    </div>
+  `;
+  const [allowBtn, denyBtn] = li.querySelectorAll('button');
+  allowBtn.onclick = () => acceptViewer(vid, data, li);
+  denyBtn.onclick  = () => denyViewer(vid, li);
+  pendingEl.appendChild(li);
+}
+
+/** 시청자 허용 → Answer 생성 (iPad 호환: H.264 우선) */
+async function acceptViewer(vid, data, li){
+  try{
+    const _pc = createPeer();
+
+    // 송출 트랙 추가
+    localStream.getTracks().forEach(t => _pc.addTrack(t, localStream));
+
+    // iPad 호환: H.264 우선
+    preferH264(_pc);
+
+    // remote ICE (viewer)
+    const remoteCandidatesRef = db.ref(`rooms/${roomId}/candidates/${vid}/viewer`);
+    remoteCandidatesRef.on('child_added', s => {
+      const c = s.val(); if(c) _pc.addIceCandidate(new RTCIceCandidate(c));
+    });
+
+    // my ICE (presenter)
+    const myCandidatesRef = db.ref(`rooms/${roomId}/candidates/${vid}/presenter`);
+    _pc.onicecandidate = (ev) => { if(ev.candidate){ myCandidatesRef.push(ev.candidate.toJSON()); } };
+
+    await _pc.setRemoteDescription(new RTCSessionDescription({ type:'offer', sdp:data.sdp }));
+    const answer = await _pc.createAnswer();
+    await _pc.setLocalDescription(answer);
+
+    await db.ref(`rooms/${roomId}/answers/${vid}`).set({ sdp: answer.sdp, ts: Date.now() });
+
+    li.querySelector('.muted').textContent = '연결 진행 중…';
+    li.style.opacity = .7;
+    log('[Presenter] answered to ' + vid);
+  }catch(e){ alert('연결 실패: ' + e.message); }
+}
+
+function denyViewer(vid, li){
+  db.ref(`rooms/${roomId}/offers/${vid}`).remove();
+  db.ref(`rooms/${roomId}/candidates/${vid}`).remove();
+  li.remove();
+}
+
+/** 시청자 */
+async function startViewer(){
+  roomId = (roomIdInput.value || '').replace(/\s+/g,'');
+  if(!roomId){ alert('방 코드를 입력하세요.'); return; }
+
+  viewerId = randomId(8);
+  pc = createPeer();
+
+  // recvonly transceivers
+  pc.addTransceiver('video', { direction:'recvonly' });
+  pc.addTransceiver('audio', { direction:'recvonly' });
+
+  pc.ontrack = (ev)=>{
+    if(player.srcObject !== ev.streams[0]) player.srcObject = ev.streams[0];
+    unmuteBtn.style.display = 'inline-block'; // 사용자 클릭 유도 (iOS)
+    log('[Viewer] ontrack: ' + ev.track.kind);
+  };
+
+  // my ICE (viewer)
+  const myCandidatesRef = db.ref(`rooms/${roomId}/candidates/${viewerId}/viewer`);
+  pc.onicecandidate = (ev)=>{ if(ev.candidate){ myCandidatesRef.push(ev.candidate.toJSON()); } };
+
+  // remote ICE (presenter)
+  const remoteCandidatesRef = db.ref(`rooms/${roomId}/candidates/${viewerId}/presenter`);
+  remoteCandidatesRef.on('child_added', s=>{ const c=s.val(); if(c) pc.addIceCandidate(new RTCIceCandidate(c)); });
+
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+
+  // 업로드 에러 핸들링
+  const offerRef = db.ref(`rooms/${roomId}/offers/${viewerId}`);
+  offerRef.set({ sdp: offer.sdp, ts: Date.now() })
+    .then(()=> log('[Viewer] offer uploaded') )
+    .catch(e => { console.error('Offer upload failed:', e); alert('오퍼 업로드 실패: '+e.message+'\n규칙/인증/URL 확인'); });
+
+  // answer wait
+  db.ref(`rooms/${roomId}/answers/${viewerId}`).on('value', async snap=>{
+    const val = snap.val();
+    if(val && val.sdp && pc.signalingState === 'have-local-offer'){
+      await pc.setRemoteDescription(new RTCSessionDescription({ type:'answer', sdp: val.sdp }));
+      logStatus('시청 중… (소리: 🔊 버튼을 눌러주세요)');
+      toast('오디오가 안 들리면 🔊 버튼 클릭');
+    }
+  });
+
+  isRunning = true; startBtn.disabled = true; stopBtn.disabled = false;
+  logStatus(`접속 요청 완료. 송출자 승인 대기… (내 ID: ${viewerId})`);
+}
+
+/** controls */
+startBtn.addEventListener('click', async ()=>{
+  const m = document.querySelector('input[name="mode"]:checked').value;
+  if(m==='presenter') await startPresenter(); else await startViewer();
+});
+
+stopBtn.addEventListener('click', async ()=>{ await cleanup(); });
+
+genRoom.addEventListener('click', ()=>{ roomIdInput.value = `rm-${randomId(9)}`; });
+
+async function cleanup(){
+  try{
+    if(localStream){ localStream.getTracks().forEach(t=>t.stop()); localStream=null; }
+    if(pc){ pc.getSenders().forEach(s=>s.track && s.track.stop()); pc.close(); pc=null; }
+    if(roomId && mode==='viewer' && viewerId){
+      await db.ref(`rooms/${roomId}/offers/${viewerId}`).remove();
+      await db.ref(`rooms/${roomId}/answers/${viewerId}`).remove();
+      await db.ref(`rooms/${roomId}/candidates/${viewerId}`).remove();
+    }
+  }catch(e){}
+  isRunning=false; startBtn.disabled=false; stopBtn.disabled=true; player.srcObject=null; pendingEl.innerHTML=''; logStatus('대기 중…'); unmuteBtn.style.display='none';
+}
+
+/** Dev logs */
+window.addEventListener('error', e=> log('[Error] ' + e.message));
+</script>
+</body>
+</html>
