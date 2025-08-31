@@ -43,7 +43,7 @@
 <main>
   <section class="card">
     <h2 style="margin:0 0 8px 0">라이브</h2>
-    <!-- iOS 자동재생 정책 대응: muted로 시작 + webkit-playsinline -->
+    <!-- iOS 자동재생 정책 대응 -->
     <video id="player" autoplay playsinline webkit-playsinline muted controls></video>
     <!-- iOS 오디오 안정화용 숨김 미러 -->
     <audio id="audiomirror" autoplay playsinline webkit-playsinline style="display:none"></audio>
@@ -83,7 +83,7 @@
 
     <div id="presenterHints" style="margin-top:12px;display:none">
       <small class="hint">
-        * iPad 시청 가능. 첫 재생 시 🔊 버튼으로 음소거 해제가 필요합니다. H.264 우선 협상 적용됨.
+        * iPad 시청 가능. 첫 재생 시 🔊 버튼(또는 화면 탭)으로 음소거 해제가 필요합니다. H.264 우선 협상 적용됨.
       </small>
     </div>
   </section>
@@ -109,6 +109,13 @@
 </footer>
 
 <div id="toast"></div>
+
+<!-- iOS용 탭-투-언뮤트 오버레이 -->
+<div id="tapUnmuteOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center;">
+  <button id="tapUnmuteBtn" style="font-size:18px;padding:14px 18px;border-radius:12px;border:1px solid #2a3a77;background:#101a45;color:#eaf0ff;cursor:pointer">
+    🔊 탭하여 소리 켜기
+  </button>
+</div>
 
 <!-- Firebase SDK (Compat) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
@@ -152,6 +159,9 @@ const stopBtn  = document.getElementById('stopBtn');
 const genRoom  = document.getElementById('genRoom');
 const toastEl  = document.getElementById('toast');
 
+const tapUnmuteOverlay = document.getElementById('tapUnmuteOverlay');
+const tapUnmuteBtn = document.getElementById('tapUnmuteBtn');
+
 // 증폭 컨트롤
 const gainRow    = document.getElementById('gainRow');
 const gainSlider = document.getElementById('gainSlider');
@@ -190,7 +200,7 @@ document.querySelectorAll('input[name="mode"]').forEach(r=>{
     mode = document.querySelector('input[name="mode"]:checked').value;
     presenterHints.style.display = (mode==='presenter') ? 'block' : 'none';
     gainRow.style.display = (mode==='presenter') ? 'flex' : 'none';
-    if (mode==='viewer' && isiOS) unmuteBtn.style.display = 'inline-block';
+    if (mode==='viewer' && isiOS) showIOSUnmuteOverlayIfNeeded();
   });
 });
 presenterHints.style.display = 'block';
@@ -220,10 +230,28 @@ function createPeer(){
 window.addEventListener('DOMContentLoaded', ()=>{
   const p = new URLSearchParams(location.search);
   const m = p.get('mode'); const r = p.get('room'); const a = p.get('autostart');
-  if(m==='viewer'){ document.querySelector('input[name="mode"][value="viewer"]').checked = true; presenterHints.style.display = 'none'; gainRow.style.display='none'; mode='viewer'; if(isiOS) unmuteBtn.style.display='inline-block'; }
+  if(m==='viewer'){ document.querySelector('input[name="mode"][value="viewer"]').checked = true; presenterHints.style.display = 'none'; gainRow.style.display='none'; mode='viewer'; if(isiOS) showIOSUnmuteOverlayIfNeeded(); }
   if(r){ roomIdInput.value = r; }
   if(a==='1'){ setTimeout(()=>startBtn.click(), 400); }
 });
+
+/** iOS 전용: 언뮤트 오버레이 표시/동작 */
+function showIOSUnmuteOverlayIfNeeded() {
+  if (isiOS && mode === 'viewer') {
+    tapUnmuteOverlay.style.display = 'flex';
+    unmuteBtn.style.display = 'none';
+  }
+}
+async function handleTapUnmute(){
+  await enableAudioPlayback();
+  tapUnmuteOverlay.style.display = 'none';
+}
+tapUnmuteBtn?.addEventListener('click', handleTapUnmute);
+tapUnmuteOverlay?.addEventListener('click', handleTapUnmute);
+document.addEventListener('touchend', async function once(){
+  if (isiOS && mode === 'viewer') await handleTapUnmute();
+  document.removeEventListener('touchend', once, {capture:false});
+}, {capture:false, once:true});
 
 /** autoplay policy helper (iPad 등) */
 async function enableAudioPlayback(){
@@ -233,12 +261,15 @@ async function enableAudioPlayback(){
       if(!el) return;
       el.muted = false;
       el.removeAttribute('muted');
+      el.volume = 1.0;
+      el.setAttribute('playsinline','');
+      el.setAttribute('webkit-playsinline','');
     });
 
     // iOS 오디오 잠금 해제용 AudioContext
     if (isiOS) {
       if (!viewerAudioCtx) viewerAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      if (viewerAudioCtx.state !== 'running') { try { await viewerAudioCtx.resume(); } catch(_){} }
+      if (viewerAudioCtx.state !== 'running') { try { await viewerAudioCtx.resume(); } catch(_) {} }
       if (audioMirror && audioMirror.srcObject && viewerAudioCtx.state === 'running') {
         try {
           const src = viewerAudioCtx.createMediaStreamSource(audioMirror.srcObject);
@@ -248,8 +279,8 @@ async function enableAudioPlayback(){
       }
     }
 
-    const p1 = player.play(); if (p1 && typeof p1.then === 'function') await p1.catch(()=>{});
-    if (audioMirror) { const p2 = audioMirror.play(); if (p2 && typeof p2.then === 'function') await p2.catch(()=>{}); }
+    const p1 = player.play();   if (p1?.then) await p1.catch(()=>{});
+    const p2 = audioMirror?.play(); if (p2?.then) await p2.catch(()=>{});
 
     unmuteBtn.style.display='none';
     toast('소리 재생을 시작했습니다');
@@ -339,8 +370,8 @@ async function startPresenter(){
     log('[Presenter] offer arrived from: ' + vid);
   });
 
-  isRunning = true;
   startBtn.disabled = true; stopBtn.disabled = false;
+  isRunning = true;
   logStatus(`송출 중… 방 코드: ${roomId}`);
   toast('시청자에게 방 코드를 공유하세요');
 }
@@ -418,15 +449,22 @@ async function startViewer(){
 
   pc.ontrack = (ev)=>{
     const stream = ev.streams[0];
-    if(player.srcObject !== stream) player.srcObject = stream;
 
-    // iOS 오디오 안정화: audio 미러에도 연결
+    // 비디오/오디오 연결 및 속성 강화
+    if (player.srcObject !== stream) {
+      player.srcObject = stream;
+      player.setAttribute('playsinline','');
+      player.setAttribute('webkit-playsinline','');
+      player.volume = 1.0;
+    }
     if (audioMirror && audioMirror.srcObject !== stream) {
       audioMirror.srcObject = stream;
+      audioMirror.setAttribute('playsinline','');
+      audioMirror.setAttribute('webkit-playsinline','');
     }
 
-    if (isiOS) unmuteBtn.style.display = 'inline-block';
-    log('[Viewer] ontrack: ' + ev.track.kind);
+    if (isiOS) showIOSUnmuteOverlayIfNeeded();
+    log('[Viewer] tracks: ' + stream.getTracks().map(t=>t.kind).join(', '));
   };
 
   // my ICE (viewer)
@@ -451,13 +489,15 @@ async function startViewer(){
     const val = snap.val();
     if(val && val.sdp && pc.signalingState === 'have-local-offer'){
       await pc.setRemoteDescription(new RTCSessionDescription({ type:'answer', sdp: val.sdp }));
-      logStatus('시청 중… (소리: 🔊 버튼을 눌러주세요)');
-      if (isiOS) unmuteBtn.style.display = 'inline-block';
-      toast('오디오가 안 들리면 🔊 버튼 클릭');
+      logStatus('시청 중… (iPad는 화면을 탭하여 소리를 켜주세요)');
+      if (isiOS) showIOSUnmuteOverlayIfNeeded();
+      else unmuteBtn.style.display = 'inline-block';
+      toast('오디오가 안 들리면 🔊 버튼 또는 화면 탭');
     }
   });
 
-  isRunning = true; startBtn.disabled = true; stopBtn.disabled = false;
+  startBtn.disabled = true; stopBtn.disabled = false;
+  isRunning = true;
   logStatus(`접속 요청 완료. 송출자 승인 대기… (내 ID: ${viewerId})`);
 }
 
@@ -481,7 +521,7 @@ async function cleanup(){
       await db.ref(`rooms/${roomId}/candidates/${viewerId}`).remove();
     }
   }catch(e){}
-  isRunning=false; startBtn.disabled=false; stopBtn.disabled=true; player.srcObject=null; pendingEl.innerHTML=''; logStatus('대기 중…'); unmuteBtn.style.display='none';
+  isRunning=false; startBtn.disabled=false; stopBtn.disabled=true; player.srcObject=null; pendingEl.innerHTML=''; logStatus('대기 중…'); unmuteBtn.style.display='none'; tapUnmuteOverlay.style.display='none';
 }
 
 /** Dev logs */
