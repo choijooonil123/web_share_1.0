@@ -43,8 +43,10 @@
 <main>
   <section class="card">
     <h2 style="margin:0 0 8px 0">라이브</h2>
-    <!-- iOS 자동재생 정책 대응: muted로 시작 후 버튼으로 해제 -->
-    <video id="player" autoplay playsinline muted controls></video>
+    <!-- iOS 자동재생 정책 대응: muted로 시작 + webkit-playsinline -->
+    <video id="player" autoplay playsinline webkit-playsinline muted controls></video>
+    <!-- iOS 오디오 안정화용 숨김 미러 -->
+    <audio id="audiomirror" autoplay playsinline webkit-playsinline style="display:none"></audio>
 
     <div class="grid-2" style="margin-top:10px">
       <div>
@@ -81,7 +83,7 @@
 
     <div id="presenterHints" style="margin-top:12px;display:none">
       <small class="hint">
-        * iPad 시청 가능. Safari/Chrome에서 🔊 버튼으로 음소거 해제가 필요합니다. H.264 우선 협상 적용됨.
+        * iPad 시청 가능. 첫 재생 시 🔊 버튼으로 음소거 해제가 필요합니다. H.264 우선 협상 적용됨.
       </small>
     </div>
   </section>
@@ -103,7 +105,7 @@
 </main>
 
 <footer>
-  대규모 송출은 SFU(LiveKit/Janus/mediasoup 등) 권장 · TURN 서버 추가 시 연결 성공률↑
+  대규모 송출은 SFU(LiveKit/Janus/mediasoup 등) 권장 · TURN 서버 추가 시 성공률↑
 </footer>
 
 <div id="toast"></div>
@@ -137,6 +139,7 @@ const db = firebase.database();
 
 /** UI refs */
 const player = document.getElementById('player');
+const audioMirror = document.getElementById('audiomirror');
 const roomIdInput = document.getElementById('roomId');
 const statusEl = document.getElementById('status');
 const pendingEl = document.getElementById('pending');
@@ -162,12 +165,21 @@ let viewerId = '';
 let isRunning = false;
 let audioCtx = null;
 let gainNode = null;
+let viewerAudioCtx = null;
 
 /** helpers */
 function logStatus(msg){ statusEl.textContent = msg; }
 function log(msg){ console.log(msg); logEl.textContent += msg + '\n'; logEl.scrollTop = logEl.scrollHeight; }
 function toast(msg){ toastEl.textContent = msg; toastEl.style.display='block'; setTimeout(()=>toastEl.style.display='none', 1800); }
 function randomId(len=10){ const c='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'; let s=''; for(let i=0;i<len;i++) s+=c[Math.floor(Math.random()*c.length)]; return s; }
+
+/** iOS/iPadOS 감지 */
+const isiOS = (() => {
+  const ua = navigator.userAgent || '';
+  const iOS = /iPad|iPhone|iPod/.test(ua);
+  const iPadOS13Plus = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+  return iOS || iPadOS13Plus;
+})();
 
 /** 기본 볼륨 최대로 (시청자측) */
 player.volume = 1.0;
@@ -178,6 +190,7 @@ document.querySelectorAll('input[name="mode"]').forEach(r=>{
     mode = document.querySelector('input[name="mode"]:checked').value;
     presenterHints.style.display = (mode==='presenter') ? 'block' : 'none';
     gainRow.style.display = (mode==='presenter') ? 'flex' : 'none';
+    if (mode==='viewer' && isiOS) unmuteBtn.style.display = 'inline-block';
   });
 });
 presenterHints.style.display = 'block';
@@ -207,19 +220,40 @@ function createPeer(){
 window.addEventListener('DOMContentLoaded', ()=>{
   const p = new URLSearchParams(location.search);
   const m = p.get('mode'); const r = p.get('room'); const a = p.get('autostart');
-  if(m==='viewer'){ document.querySelector('input[name="mode"][value="viewer"]').checked = true; presenterHints.style.display = 'none'; gainRow.style.display='none'; mode='viewer'; }
+  if(m==='viewer'){ document.querySelector('input[name="mode"][value="viewer"]').checked = true; presenterHints.style.display = 'none'; gainRow.style.display='none'; mode='viewer'; if(isiOS) unmuteBtn.style.display='inline-block'; }
   if(r){ roomIdInput.value = r; }
   if(a==='1'){ setTimeout(()=>startBtn.click(), 400); }
 });
 
 /** autoplay policy helper (iPad 등) */
-function enableAudioPlayback(){
+async function enableAudioPlayback(){
   try{
-    player.muted = false; // 음소거 해제
-    const p = player.play();
-    if(p && typeof p.then === 'function') p.catch(()=>{});
+    // player / audioMirror 모두 언뮤트 (속성과 프로퍼티 모두)
+    [player, audioMirror].forEach(el=>{
+      if(!el) return;
+      el.muted = false;
+      el.removeAttribute('muted');
+    });
+
+    // iOS 오디오 잠금 해제용 AudioContext
+    if (isiOS) {
+      if (!viewerAudioCtx) viewerAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (viewerAudioCtx.state !== 'running') { try { await viewerAudioCtx.resume(); } catch(_){} }
+      if (audioMirror && audioMirror.srcObject && viewerAudioCtx.state === 'running') {
+        try {
+          const src = viewerAudioCtx.createMediaStreamSource(audioMirror.srcObject);
+          const gain = viewerAudioCtx.createGain(); gain.gain.value = 1.0;
+          src.connect(gain).connect(viewerAudioCtx.destination);
+        } catch(_) {}
+      }
+    }
+
+    const p1 = player.play(); if (p1 && typeof p1.then === 'function') await p1.catch(()=>{});
+    if (audioMirror) { const p2 = audioMirror.play(); if (p2 && typeof p2.then === 'function') await p2.catch(()=>{}); }
+
     unmuteBtn.style.display='none';
-  }catch(e){}
+    toast('소리 재생을 시작했습니다');
+  } catch (e) { console.warn('enableAudioPlayback failed:', e); }
 }
 unmuteBtn.addEventListener('click', enableAudioPlayback);
 
@@ -232,7 +266,7 @@ function preferH264(pc){
     const h264 = caps.codecs.filter(c => /H264/i.test(c.mimeType));
     if (!h264.length) return;
     txs.forEach(t => {
-      const kind = t?.mid ? t?.receiver?.track?.kind : (t?.sender?.track?.kind || t?.kind);
+      const kind = t?.sender?.track?.kind || t?.kind;
       if (kind === 'video' && typeof t.setCodecPreferences === 'function') {
         const others = caps.codecs.filter(c => !/H264/i.test(c.mimeType));
         t.setCodecPreferences(h264.concat(others));
@@ -383,8 +417,15 @@ async function startViewer(){
   pc.addTransceiver('audio', { direction:'recvonly' });
 
   pc.ontrack = (ev)=>{
-    if(player.srcObject !== ev.streams[0]) player.srcObject = ev.streams[0];
-    unmuteBtn.style.display = 'inline-block'; // 사용자 클릭 유도 (iOS)
+    const stream = ev.streams[0];
+    if(player.srcObject !== stream) player.srcObject = stream;
+
+    // iOS 오디오 안정화: audio 미러에도 연결
+    if (audioMirror && audioMirror.srcObject !== stream) {
+      audioMirror.srcObject = stream;
+    }
+
+    if (isiOS) unmuteBtn.style.display = 'inline-block';
     log('[Viewer] ontrack: ' + ev.track.kind);
   };
 
@@ -411,6 +452,7 @@ async function startViewer(){
     if(val && val.sdp && pc.signalingState === 'have-local-offer'){
       await pc.setRemoteDescription(new RTCSessionDescription({ type:'answer', sdp: val.sdp }));
       logStatus('시청 중… (소리: 🔊 버튼을 눌러주세요)');
+      if (isiOS) unmuteBtn.style.display = 'inline-block';
       toast('오디오가 안 들리면 🔊 버튼 클릭');
     }
   });
