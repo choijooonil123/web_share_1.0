@@ -213,6 +213,20 @@ let localStream = null;            // 내가 보내는 스트림(모드별 구�
 let audioCtx = null, gainNode = null, viewerAudioCtx = null;
 
 /* ---------------- Utils ---------------- */
+// 강제 재생 보조(모바일 자동재생 차단 우회)
+async function forcePlay(el){
+  if(!el) return;
+  try{
+    el.muted = true;                    // 자동재생 보조
+    el.setAttribute('muted','');        // iOS 보조
+    el.setAttribute('playsinline','');  // iOS 보조
+    el.setAttribute('webkit-playsinline','');
+    await el.play();
+  }catch(e){
+    console.warn('forcePlay blocked:', e);
+  }
+}
+
 function logStatus(msg){ statusEl.textContent = msg; }
 function log(msg){ console.log(msg); logEl.textContent += msg + '\n'; logEl.scrollTop = logEl.scrollHeight; }
 function toast(msg){ toastEl.textContent = msg; toastEl.style.display='block'; setTimeout(()=>toastEl.style.display='none', 1800); }
@@ -349,13 +363,25 @@ unmuteBtn.addEventListener('click', enableAudioPlayback);
 /* ---------------- Media Builders ---------------- */
 async function getCameraStream(){
   return await navigator.mediaDevices.getUserMedia({
-    video: { facingMode, width:{ideal:1280,max:1920}, height:{ideal:720,max:1080}, frameRate:{ideal:30,max:60} },
+    video: {
+      facingMode,
+      width:  { ideal: 1280, max: 1920 },
+      height: { ideal: 720,  max: 1080 },
+      frameRate: { ideal: 30, max: 60 }
+    },
     audio: { echoCancellation:true, noiseSuppression:true, autoGainControl:true }
   });
 }
+
 async function getScreenStream(){
-  return await navigator.mediaDevices.getDisplayMedia({ video:true, audio:true });
+  try{
+    return await navigator.mediaDevices.getDisplayMedia({ video:true, audio:true });
+  }catch(e){
+    log('[Host] getDisplayMedia with audio failed, retry video-only');
+    return await navigator.mediaDevices.getDisplayMedia({ video:true }); // 재시도
+  }
 }
+
 async function makeAmplifiedStreamFrom(sourceStream, fallbackUseMic=true){
   audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)();
   gainNode = audioCtx.createGain();
@@ -401,19 +427,40 @@ async function buildLocalStreamForCurrentMode(){
 }
 async function replaceVideoTrack(){
   if (!pc || !localStream) return;
+
+  // 새 카메라 스트림 요청
   const newStream = await getCameraStream();
   const newTrack = newStream.getVideoTracks()[0];
-  // 교체
   const sender = pc.getSenders().find(s=>s.track && s.track.kind==='video');
+
   if (sender && newTrack){
-    await sender.replaceTrack(newTrack);
-    // 미리보기 갱신
+    try{
+      await sender.replaceTrack(newTrack);
+    }catch(e){
+      console.warn('replaceTrack failed, renegotiate fallback:', e);
+      try{
+        const old = sender.track;
+        if (old) old.stop();
+        await sender.replaceTrack(null);
+        pc.addTrack(newTrack, localStream);
+        // (간단 대안) 재협상 로직이 필요하면 여기서 offer/answer 다시 만들도록 확장 가능
+      }catch(e2){ console.warn('fallback failed:', e2); }
+    }
+
+    // 로컬 스트림 갱신 + 프리뷰 갱신
     localStream.getVideoTracks().forEach(t=>t.stop());
-    localStream.removeTrack(localStream.getVideoTracks()[0]);
-    localStream.addTrack(newTrack);
-    if (comm==='meeting') localPreview.srcObject = localStream;
+    localStream = new MediaStream([ newTrack, ...localStream.getAudioTracks() ]);
+
+    if (comm==='meeting'){
+      localPreview.srcObject = localStream;
+      await forcePlay(localPreview);
+    }else{
+      player.srcObject = localStream;
+      await forcePlay(player);
+    }
   }
 }
+
 
 /* ---------------- Signaling: Host / Guest ---------------- */
 function addPending(vid, data){
@@ -443,15 +490,27 @@ function denyGuest(vid, li){
 async function startHost(){
   roomId = (roomIdInput.value||'').replace(/\s+/g,''); if(!roomId){ roomId='rm-'+randomId(9); roomIdInput.value=roomId; }
   localStream = await buildLocalStreamForCurrentMode();
+  const vTrack = localStream?.getVideoTracks?.()[0];
+  if (vTrack) {
+    vTrack.onended = () => {
+      log('[Host] video track ended (창 닫힘/최소화 등). 다시 시작하세요.');
+      toast('공유 화면이 종료되었습니다. [시작]으로 다시 공유하세요.');
+      // 필요하면 자동 재시작:
+      // startBtn.click();
+    };
+  }
+
 
   if (comm==='broadcast'){
     if (localStream) {
       player.srcObject = localStream;
+      await forcePlay(player);
       try{ player.muted=true; player.setAttribute('muted',''); player.setAttribute('playsinline',''); player.setAttribute('webkit-playsinline',''); await player.play(); }catch(e){}
     }
   }else{ // meeting
     // 미리보기/원격 UI
     localPreview.srcObject = localStream;
+    await forcePlay(localPreview);
     try{ localPreview.setAttribute('playsinline',''); localPreview.setAttribute('webkit-playsinline',''); await localPreview.play(); }catch(e){}
   }
 
@@ -535,14 +594,23 @@ async function startGuest(){
     if (comm==='broadcast'){
       if (player.srcObject !== stream){
         player.srcObject = stream;
-        (async ()=>{ try{ player.setAttribute('playsinline',''); player.setAttribute('webkit-playsinline',''); await player.play(); }catch(e){} })();
+        
+        (async ()=>{ try{ 
+          player.setAttribute('playsinline',''); 
+          player.setAttribute('webkit-playsinline',''); 
+          await player.play(); 
+        }catch(e){} })();
         audioMirror.srcObject = stream;
       }
       if (isiOS) showIOSUnmuteOverlayIfNeeded(); else unmuteBtn.style.display='inline-block';
     }else{
       if (remoteVideo.srcObject !== stream){
         remoteVideo.srcObject = stream;
-        (async ()=>{ try{ remoteVideo.setAttribute('playsinline',''); remoteVideo.setAttribute('webkit-playsinline',''); await remoteVideo.play(); }catch(e){} })();
+        (async ()=>{ try{ 
+          remoteVideo.setAttribute('playsinline',''); 
+          remoteVideo.setAttribute('webkit-playsinline',''); 
+          await remoteVideo.play(); 
+        }catch(e){} })();
         audioMirror.srcObject = stream;
       }
       if (isiOS) showIOSUnmuteOverlayIfNeeded(); else unmuteBtn.style.display='inline-block';
