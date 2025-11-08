@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>화면공유 웹(승인제 · WebRTC)</title>
+  <title>화면·카메라 공유 웹(승인제 · WebRTC)</title>
   <style>
     :root{ --bg:#0b1020; --panel:#10183a; --ink:#eaf0ff; --muted:#a7b3d4; --brand:#6aa6ff; --ok:#4cd97b; --danger:#ff6a6a; }
     *{box-sizing:border-box}
@@ -32,7 +32,7 @@
 </head>
 <body>
 <header>
-  <h1>화면공유 웹(승인제 · WebRTC)</h1>
+  <h1>화면·카메라 공유 웹(승인제 · WebRTC)</h1>
   <div class="row">
     <span class="tag">P2P 소규모</span>
     <span class="tag">Firebase RTDB</span>
@@ -62,6 +62,25 @@
         <small class="hint">직접 입력 또는 자동 생성</small>
       </div>
     </div>
+
+    <!-- ⬇ 추가: 소스 선택 + 전/후면 전환 -->
+    <div class="grid-2" style="margin-top:10px">
+      <div>
+        <label>소스 선택</label>
+        <div class="row" id="sourceRow">
+          <label class="row"><input type="radio" name="source" value="screen" checked> 화면공유</label>
+          <label class="row"><input type="radio" name="source" value="camera"> 카메라</label>
+        </div>
+      </div>
+      <div>
+        <label>카메라 제어(송출자·카메라)</label>
+        <div class="row">
+          <button id="switchCamBtn" style="display:none">전/후면 전환</button>
+        </div>
+        <small class="hint">모바일에서 전·후면 전환, 데스크톱은 기본 웹캠</small>
+      </div>
+    </div>
+    <!-- ⬆ 추가 끝 -->
 
     <div class="row" style="margin-top:10px">
       <button id="genRoom">방 코드 자동생성</button>
@@ -136,7 +155,7 @@ const firebaseConfig = {
 };
 firebase.initializeApp(firebaseConfig);
 
-// 익명 로그인 (규칙이 auth != null 인 경우 필수)
+// 익명 로그인
 firebase.auth().signInAnonymously().catch(err=>{
   console.error('Auth failed:', err);
   alert('Firebase 로그인 실패: ' + err.message);
@@ -166,6 +185,12 @@ const tapUnmuteBtn = document.getElementById('tapUnmuteBtn');
 const gainRow    = document.getElementById('gainRow');
 const gainSlider = document.getElementById('gainSlider');
 const gainVal    = document.getElementById('gainVal');
+
+// ⬇ 추가: 소스/카메라 제어
+const switchCamBtn = document.getElementById('switchCamBtn');
+let sourceMode = 'screen';       // 'screen' | 'camera'
+let facingMode = 'user';         // 전면/후면 (모바일)
+// ⬆ 추가 끝
 
 let mode = 'presenter';
 let localStream = null;
@@ -200,11 +225,35 @@ document.querySelectorAll('input[name="mode"]').forEach(r=>{
     mode = document.querySelector('input[name="mode"]:checked').value;
     presenterHints.style.display = (mode==='presenter') ? 'block' : 'none';
     gainRow.style.display = (mode==='presenter') ? 'flex' : 'none';
+    updateCameraUIVisibility();
     if (mode==='viewer' && isiOS) showIOSUnmuteOverlayIfNeeded();
   });
 });
 presenterHints.style.display = 'block';
 gainRow.style.display = 'flex';
+
+/** 소스 선택 토글(화면공유/카메라) */
+document.querySelectorAll('input[name="source"]').forEach(r=>{
+  r.addEventListener('change', ()=>{
+    sourceMode = document.querySelector('input[name="source"]:checked').value;
+    updateCameraUIVisibility();
+  });
+});
+function updateCameraUIVisibility(){
+  const show = (mode === 'presenter' && sourceMode === 'camera');
+  switchCamBtn.style.display = show ? 'inline-block' : 'none';
+}
+
+/** 카메라 전환 버튼(간단·안전: 재시작) */
+switchCamBtn.addEventListener('click', async ()=>{
+  facingMode = (facingMode === 'user') ? 'environment' : 'user';
+  toast(`카메라 전환: ${facingMode === 'user' ? '전면' : '후면'}`);
+  const wasRunning = isRunning;
+  const savedRoom = roomIdInput.value;
+  await cleanup();
+  roomIdInput.value = savedRoom || '';
+  if (wasRunning) startBtn.click();
+});
 
 /** 슬라이더 실시간 반영 */
 if (gainSlider) {
@@ -233,6 +282,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
   if(m==='viewer'){ document.querySelector('input[name="mode"][value="viewer"]').checked = true; presenterHints.style.display = 'none'; gainRow.style.display='none'; mode='viewer'; if(isiOS) showIOSUnmuteOverlayIfNeeded(); }
   if(r){ roomIdInput.value = r; }
   if(a==='1'){ setTimeout(()=>startBtn.click(), 400); }
+  updateCameraUIVisibility();
 });
 
 /** iOS 전용: 언뮤트 오버레이 표시/동작 */
@@ -256,7 +306,6 @@ document.addEventListener('touchend', async function once(){
 /** autoplay policy helper (iPad 등) */
 async function enableAudioPlayback(){
   try{
-    // player / audioMirror 모두 언뮤트 (속성과 프로퍼티 모두)
     [player, audioMirror].forEach(el=>{
       if(!el) return;
       el.muted = false;
@@ -266,7 +315,6 @@ async function enableAudioPlayback(){
       el.setAttribute('webkit-playsinline','');
     });
 
-    // iOS 오디오 잠금 해제용 AudioContext
     if (isiOS) {
       if (!viewerAudioCtx) viewerAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
       if (viewerAudioCtx.state !== 'running') { try { await viewerAudioCtx.resume(); } catch(_) {} }
@@ -306,37 +354,24 @@ function preferH264(pc){
   }catch(e){ console.warn('preferH264 failed:', e); }
 }
 
-/** 송출자 */
-async function startPresenter(){
-  roomId = (roomIdInput.value || '').replace(/\s+/g,''); // 공백 제거
-  if(!roomId){ roomId = 'rm-' + randomId(9); roomIdInput.value = roomId; }
-
-  let screenStream;
-  try{
-    screenStream = await navigator.mediaDevices.getDisplayMedia({ video:true, audio:true });
-  }catch(e){
-    alert('화면 공유 권한 필요: ' + e.message); return;
-  }
-
-  // Web Audio 준비 + Gain
+/** 공통: 오디오 증폭 스트림 생성 */
+async function makeAmplifiedStreamFrom(sourceStream, fallbackUseMic=true){
   audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
   gainNode = audioCtx.createGain();
   const initialGain = parseFloat(gainSlider?.value || '2') || 2.0;
   gainNode.gain.value = initialGain;
   if (gainVal) gainVal.textContent = initialGain.toFixed(1);
 
-  const videoTracks = screenStream.getVideoTracks();
-  const screenAudioTracks = screenStream.getAudioTracks();
+  const videoTracks = sourceStream.getVideoTracks();
+  const inAudioTracks = sourceStream.getAudioTracks();
   let outputAudioTrack = null;
 
-  if (screenAudioTracks.length) {
-    // 시스템/탭 오디오 → 증폭
-    const src = audioCtx.createMediaStreamSource(screenStream);
+  if (inAudioTracks.length){
+    const src = audioCtx.createMediaStreamSource(sourceStream);
     const dest = audioCtx.createMediaStreamDestination();
     src.connect(gainNode).connect(dest);
     outputAudioTrack = dest.stream.getAudioTracks()[0];
-  } else {
-    // 오디오가 없으면 마이크 보조 + 증폭
+  } else if (fallbackUseMic){
     try {
       const mic = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation:true, noiseSuppression:true, autoGainControl:true }
@@ -345,20 +380,47 @@ async function startPresenter(){
       const dest = audioCtx.createMediaStreamDestination();
       src.connect(gainNode).connect(dest);
       outputAudioTrack = dest.stream.getAudioTracks()[0];
-      log('[Presenter] 시스템 오디오 없음 → 마이크 보조 사용');
+      log('[Presenter] 입력 오디오 없음 → 마이크 보조 사용');
     } catch (e) {
       log('[Presenter] 마이크 획득 실패: ' + e.message);
     }
   }
 
-  // 최종 localStream
   if (outputAudioTrack) {
-    localStream = new MediaStream([...videoTracks, outputAudioTrack]);
+    return new MediaStream([...videoTracks, outputAudioTrack]);
   } else {
-    localStream = new MediaStream([...videoTracks]); // 영상만
+    return new MediaStream([...videoTracks]); // 영상만
+  }
+}
+
+/** 송출자 */
+async function startPresenter(){
+  roomId = (roomIdInput.value || '').replace(/\s+/g,'');
+  if(!roomId){ roomId = 'rm-' + randomId(9); roomIdInput.value = roomId; }
+
+  let rawStream;
+  try{
+    if (sourceMode === 'screen'){
+      rawStream = await navigator.mediaDevices.getDisplayMedia({ video:true, audio:true });
+    } else {
+      rawStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode,
+          width: { ideal: 1280 },
+          height:{ ideal: 720 }
+        },
+        audio: { echoCancellation:true, noiseSuppression:true, autoGainControl:true }
+      });
+    }
+  }catch(e){
+    alert((sourceMode==='screen'?'화면 공유':'카메라') + ' 권한 필요: ' + e.message);
+    return;
   }
 
-  log('[Presenter] audio track:', localStream.getAudioTracks().map(t=>t.label).join(', ') || '(없음)');
+  // 증폭 적용: 화면 공유 시 오디오 없으면 마이크 보조 허용
+  localStream = await makeAmplifiedStreamFrom(rawStream, sourceMode==='screen');
+
+  log(`[Presenter] mode=${sourceMode}, video=${localStream.getVideoTracks().length}, audio=${localStream.getAudioTracks().length}`);
   player.srcObject = localStream;
 
   // 시청자 Offer 대기
@@ -372,7 +434,7 @@ async function startPresenter(){
 
   startBtn.disabled = true; stopBtn.disabled = false;
   isRunning = true;
-  logStatus(`송출 중… 방 코드: ${roomId}`);
+  logStatus(`송출 중… (${sourceMode==='screen'?'화면공유':'카메라'}) · 방 코드: ${roomId}`);
   toast('시청자에게 방 코드를 공유하세요');
 }
 
@@ -450,7 +512,6 @@ async function startViewer(){
   pc.ontrack = (ev)=>{
     const stream = ev.streams[0];
 
-    // 비디오/오디오 연결 및 속성 강화
     if (player.srcObject !== stream) {
       player.srcObject = stream;
       player.setAttribute('playsinline','');
@@ -478,13 +539,11 @@ async function startViewer(){
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
 
-  // 업로드 에러 핸들링
   const offerRef = db.ref(`rooms/${roomId}/offers/${viewerId}`);
   offerRef.set({ sdp: offer.sdp, ts: Date.now() })
     .then(()=> log('[Viewer] offer uploaded') )
     .catch(e => { console.error('Offer upload failed:', e); alert('오퍼 업로드 실패: '+e.message+'\n규칙/인증/URL 확인'); });
 
-  // answer wait
   db.ref(`rooms/${roomId}/answers/${viewerId}`).on('value', async snap=>{
     const val = snap.val();
     if(val && val.sdp && pc.signalingState === 'have-local-offer'){
