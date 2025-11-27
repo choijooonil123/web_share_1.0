@@ -1,0 +1,685 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>승인제 WebRTC (방송/미팅)</title>
+  <style>
+    :root{ --bg:#0b1020; --panel:#10183a; --ink:#eaf0ff; --muted:#a7b3d4; --brand:#6aa6ff; --ok:#4cd97b; --danger:#ff6a6a; }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:ui-sans-serif,system-ui,Apple SD Gothic Neo,Noto Sans KR,Segoe UI,Roboto,sans-serif;color:var(--ink);background:radial-gradient(1000px 700px at 80% -10%,#1a2650 0%,#0b1020 45%)}
+    header{padding:18px 20px 10px;display:flex;gap:12px;align-items:center;justify-content:space-between}
+    h1{margin:0;font-size:18px}
+    main{padding:16px;display:grid;gap:16px;grid-template-columns:1fr 360px}
+    .card{background:rgba(16,24,58,.8);border:1px solid #22306b;border-radius:16px;padding:14px;box-shadow:0 8px 30px rgba(0,0,0,.25)}
+    label{display:block;margin-top:8px;font-size:14px;color:var(--muted)}
+    input[type="text"]{width:100%;padding:10px;border-radius:12px;border:1px solid #2a3a77;background:#0d1433;color:#eaf0ff}
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    button{padding:10px 14px;border-radius:12px;border:1px solid #2a3a77;background:#101a45;color:#eaf0ff;cursor:pointer}
+    button.primary{background:linear-gradient(180deg,#2b5bd1,#2048a8)}
+    button.danger{background:linear-gradient(180deg,#c24,#932)}
+    small{color:var(--muted)}
+    video{width:100%;background:#000;border-radius:12px}
+    ul{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:8px}
+    li{padding:10px;border:1px solid #2a3a77;border-radius:12px;background:#0f173b;display:flex;justify-content:space-between;align-items:center}
+    .tag{font-size:12px;padding:3px 8px;border-radius:999px;background:#1b285c;color:#cfe0ff;border:1px solid #2a3a77}
+    .muted{color:var(--muted)}
+    .hint{font-size:12px;color:#a7b3d4}
+    footer{padding:10px 16px;color:#a7b3d4;font-size:12px;text-align:center}
+    .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .grid-2h{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+    #toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#0d1433;border:1px solid #2a3a77;color:#eaf0ff;padding:10px 14px;border-radius:12px;display:none}
+    .hidden{display:none!important}
+  </style>
+</head>
+<body>
+<header>
+  <h1>승인제 WebRTC (방송/미팅)</h1>
+  <div class="row">
+    <span class="tag">P2P</span>
+    <span class="tag">Firebase RTDB</span>
+    <span class="tag">익명 인증</span>
+  </div>
+</header>
+
+<main>
+  <section class="card">
+    <h2 style="margin:0 0 8px 0">라이브</h2>
+
+    <!-- 방송 모드: 단일 플레이어 -->
+    <video id="player" class="" autoplay playsinline webkit-playsinline muted controls></video>
+
+    <!-- 미팅 모드: 원격/내미리보기 2분할 -->
+    <div id="meetingVideos" class="grid-2h hidden">
+      <div>
+        <small class="muted">상대(원격)</small>
+        <video id="remoteVideo" autoplay playsinline webkit-playsinline controls></video>
+      </div>
+      <div>
+        <small class="muted">나(미리보기 · 항상 음소거)</small>
+        <video id="localPreview" autoplay playsinline webkit-playsinline muted controls></video>
+      </div>
+    </div>
+
+    <audio id="audiomirror" autoplay playsinline webkit-playsinline style="display:none"></audio>
+
+    <div class="grid-2" style="margin-top:10px">
+      <div>
+        <label>역할</label>
+        <div class="row">
+          <label class="row"><input type="radio" name="role" value="host" checked> 송출자(호스트)</label>
+          <label class="row"><input type="radio" name="role" value="guest"> 시청자/게스트</label>
+        </div>
+      </div>
+      <div>
+        <label>방 코드(Room ID)</label>
+        <input id="roomId" type="text" placeholder="예: rm-k3G7a9fQ2" />
+        <small class="hint">직접 입력 또는 자동 생성</small>
+      </div>
+    </div>
+
+    <div class="grid-2" style="margin-top:10px">
+      <div>
+        <label>통신 모드</label>
+        <div class="row" id="commRow">
+          <label class="row"><input type="radio" name="comm" value="broadcast" checked> 방송(단방향)</label>
+          <label class="row"><input type="radio" name="comm" value="meeting"> 미팅(양방향)</label>
+        </div>
+      </div>
+      <div id="sourceWrap">
+        <label>소스 선택(방송 모드)</label>
+        <div class="row" id="sourceRow">
+          <label class="row"><input type="radio" name="source" value="screen" checked> 화면공유</label>
+          <label class="row"><input type="radio" name="source" value="camera"> 카메라</label>
+        </div>
+      </div>
+    </div>
+
+    <!-- 카메라 제어 -->
+    <div class="row" id="cameraCtrl" style="margin-top:10px; display:none">
+      <button id="switchCamBtn">전/후면 전환</button>
+      <button id="muteMicBtn">마이크 음소거</button>
+      <button id="muteCamBtn">카메라 끄기</button>
+    </div>
+
+    <div class="row" style="margin-top:10px">
+      <button id="genRoom">방 코드 자동생성</button>
+      <button class="primary" id="startBtn">시작</button>
+      <button class="danger" id="stopBtn" disabled>종료</button>
+      <button id="unmuteBtn" style="display:none">🔊 소리 켜기</button>
+    </div>
+
+    <!-- 오디오 증폭(방송 모드에서 송출자만 표시) -->
+    <div id="gainRow" class="row" style="margin-top:8px; display:none">
+      <small class="muted">오디오 증폭:</small>
+      <input id="gainSlider" type="range" min="1" max="3" step="0.1" value="2" />
+      <small class="muted"><span id="gainVal">2.0</span>x</small>
+    </div>
+
+    <div style="margin-top:6px"><small id="status" class="muted">대기 중…</small></div>
+    <div id="presenterHints" style="margin-top:12px;display:none">
+      <small class="hint">* iPad는 첫 재생 시 🔊 버튼(또는 화면 탭)으로 음소거 해제가 필요할 수 있습니다.</small>
+    </div>
+  </section>
+
+  <aside class="card">
+    <h3 style="margin-top:0">승인 대기 목록(호스트 전용)</h3>
+    <ul id="pending"></ul>
+    <hr style="border:none;border-top:1px solid #2a3a77;margin:12px 0"/>
+    <div>
+      <h3 style="margin:0 0 8px 0">연결 정보</h3>
+      <div id="info" class="hint">-</div>
+    </div>
+    <hr style="border:none;border-top:1px solid #2a3a77;margin:12px 0"/>
+    <div>
+      <h3 style="margin:0 0 8px 0">로그</h3>
+      <pre id="log" class="hint" style="white-space:pre-wrap;max-height:220px;overflow:auto"></pre>
+    </div>
+  </aside>
+</main>
+
+<footer>
+  대규모/다자간은 SFU 권장(LiveKit/Janus/mediasoup). TURN 추가 시 연결률↑
+</footer>
+
+<div id="toast"></div>
+
+<!-- iOS용 언뮤트 오버레이 -->
+<div id="tapUnmuteOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center;">
+  <button id="tapUnmuteBtn" style="font-size:18px;padding:14px 18px;border-radius:12px;border:1px solid #2a3a77;background:#101a45;color:#eaf0ff;cursor:pointer">
+    🔊 탭하여 소리 켜기
+  </button>
+</div>
+
+<!-- Firebase SDK (Compat) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+
+<script>
+/* ---------------- Firebase ---------------- */
+const firebaseConfig = {
+  apiKey: "AIzaSyA-007jMq4dO7M6t6wn5vR_PZW9Gg1n0LM",
+  authDomain: "webboard-ea2c4.firebaseapp.com",
+  databaseURL: "https://webboard-ea2c4-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "webboard-ea2c4",
+  storageBucket: "webboard-ea2c4.firebasestorage.app",
+  messagingSenderId: "1063560565058",
+  appId: "1:1063560565058:web:bd9b57bef6dd649f67f8db",
+  measurementId: "G-NTQGQJVW8E"
+};
+firebase.initializeApp(firebaseConfig);
+firebase.auth().signInAnonymously().catch(err=>{ console.error('Auth failed:', err); alert('Firebase 로그인 실패: ' + err.message); });
+const db = firebase.database();
+
+/* ---------------- UI refs ---------------- */
+const player = document.getElementById('player');                 // 방송 모드 플레이어
+const meetingVideos = document.getElementById('meetingVideos');   // 미팅 모드 컨테이너
+const remoteVideo = document.getElementById('remoteVideo');
+const localPreview = document.getElementById('localPreview');
+const audioMirror = document.getElementById('audiomirror');
+const roomIdInput = document.getElementById('roomId');
+const statusEl = document.getElementById('status');
+const pendingEl = document.getElementById('pending');
+const infoEl = document.getElementById('info');
+const logEl = document.getElementById('log');
+const presenterHints = document.getElementById('presenterHints');
+const unmuteBtn = document.getElementById('unmuteBtn');
+const startBtn = document.getElementById('startBtn');
+const stopBtn  = document.getElementById('stopBtn');
+const genRoom  = document.getElementById('genRoom');
+const toastEl  = document.getElementById('toast');
+const tapUnmuteOverlay = document.getElementById('tapUnmuteOverlay');
+const tapUnmuteBtn = document.getElementById('tapUnmuteBtn');
+const gainRow    = document.getElementById('gainRow');
+const gainSlider = document.getElementById('gainSlider');
+const gainVal    = document.getElementById('gainVal');
+const switchCamBtn = document.getElementById('switchCamBtn');
+const muteMicBtn   = document.getElementById('muteMicBtn');
+const muteCamBtn   = document.getElementById('muteCamBtn');
+const cameraCtrl   = document.getElementById('cameraCtrl');
+const sourceWrap   = document.getElementById('sourceWrap');
+
+/* ---------------- State ---------------- */
+let role = 'host';                 // 'host' | 'guest'
+let comm = 'broadcast';            // 'broadcast' | 'meeting'
+let sourceMode = 'screen';         // 방송 모드에서만 사용: 'screen' | 'camera'
+let facingMode = 'user';           // 카메라 전/후면
+let roomId = '';
+let viewerId = '';
+let isRunning = false;
+let pc = null;
+let localStream = null;            // 내가 보내는 스트림(모드별 구성)
+let audioCtx = null, gainNode = null, viewerAudioCtx = null;
+
+/* ---------------- Utils ---------------- */
+// 강제 재생 보조(모바일 자동재생 차단 우회)
+async function forcePlay(el){
+  if(!el) return;
+  try{
+    el.muted = true;                    // 자동재생 보조
+    el.setAttribute('muted','');        // iOS 보조
+    el.setAttribute('playsinline','');  // iOS 보조
+    el.setAttribute('webkit-playsinline','');
+    await el.play();
+  }catch(e){
+    console.warn('forcePlay blocked:', e);
+  }
+}
+
+function logStatus(msg){ statusEl.textContent = msg; }
+function log(msg){ console.log(msg); logEl.textContent += msg + '\n'; logEl.scrollTop = logEl.scrollHeight; }
+function toast(msg){ toastEl.textContent = msg; toastEl.style.display='block'; setTimeout(()=>toastEl.style.display='none', 1800); }
+function randomId(len=10){ const c='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'; let s=''; for(let i=0;i<len;i++) s+=c[Math.floor(Math.random()*c.length)]; return s; }
+const isiOS = (() => { const ua = navigator.userAgent||''; const iOS=/iPad|iPhone|iPod/.test(ua); const iPadOS13Plus=navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1; return iOS||iPadOS13Plus; })();
+player.volume = 1.0; remoteVideo.volume = 1.0;
+
+/* ---------------- UI bindings ---------------- */
+document.querySelectorAll('input[name="role"]').forEach(r=>{
+  r.addEventListener('change', ()=>{
+    role = document.querySelector('input[name="role"]:checked').value;
+    refreshUIByMode();
+  });
+});
+document.querySelectorAll('input[name="comm"]').forEach(r=>{
+  r.addEventListener('change', ()=>{
+    comm = document.querySelector('input[name="comm"]:checked').value;
+    refreshUIByMode();
+  });
+});
+document.querySelectorAll('input[name="source"]').forEach(r=>{
+  r.addEventListener('change', ()=>{
+    sourceMode = document.querySelector('input[name="source"]:checked').value;
+  });
+});
+function refreshUIByMode(){
+  const isHost = role==='host';
+  const isMeeting = comm==='meeting';
+
+  presenterHints.style.display = isHost ? 'block' : 'none';
+  gainRow.style.display = (isHost && comm==='broadcast') ? 'flex' : 'none';
+  sourceWrap.style.display = (comm==='broadcast') ? 'block' : 'none';
+
+  // 플레이어 표시 전환
+  if (isMeeting){
+    player.classList.add('hidden');
+    meetingVideos.classList.remove('hidden');
+    cameraCtrl.style.display = 'flex'; // 미팅은 기본적으로 카메라/마이크 컨트롤 노출
+  }else{
+    meetingVideos.classList.add('hidden');
+    player.classList.remove('hidden');
+    cameraCtrl.style.display = (isHost && sourceMode==='camera') ? 'flex' : 'none';
+  }
+  if (!isMeeting && role==='guest' && isiOS) showIOSUnmuteOverlayIfNeeded();
+}
+refreshUIByMode();
+
+switchCamBtn.addEventListener('click', async ()=>{
+  facingMode = (facingMode==='user')?'environment':'user';
+  toast(`카메라 전환: ${facingMode==='user'?'전면':'후면'}`);
+  if (!localStream) return;
+  await replaceVideoTrack();
+});
+
+muteMicBtn.addEventListener('click', ()=>{
+  const t = localStream?.getAudioTracks?.()[0];
+  if(!t) return;
+  t.enabled = !t.enabled;
+  muteMicBtn.textContent = t.enabled ? '마이크 음소거' : '마이크 켜기';
+});
+
+muteCamBtn.addEventListener('click', ()=>{
+  const t = localStream?.getVideoTracks?.()[0];
+  if(!t) return;
+  t.enabled = !t.enabled;
+  muteCamBtn.textContent = t.enabled ? '카메라 끄기' : '카메라 켜기';
+});
+
+if (gainSlider) {
+  gainSlider.addEventListener('input', () => {
+    if (gainNode) {
+      const v = parseFloat(gainSlider.value);
+      gainNode.gain.value = v;
+      gainVal.textContent = v.toFixed(1);
+    }
+  });
+}
+
+/* ---------------- WebRTC helpers ---------------- */
+const iceServers = [{ urls: ['stun:stun.l.google.com:19302','stun:stun1.l.google.com:19302'] }];
+function createPeer(){
+  const _pc = new RTCPeerConnection({ iceServers });
+  _pc.oniceconnectionstatechange = () => { infoEl.textContent = 'ICE: ' + _pc.iceConnectionState; };
+  _pc.onconnectionstatechange = () => { infoEl.textContent += ' | PC: ' + _pc.connectionState; };
+  return _pc;
+}
+function preferH264(pc){
+  try{
+    const txs = typeof pc.getTransceivers === 'function' ? pc.getTransceivers() : [];
+    const caps = RTCRtpSender.getCapabilities ? RTCRtpSender.getCapabilities('video') : null;
+    if (!caps || !caps.codecs) return;
+    const h264 = caps.codecs.filter(c => /H264/i.test(c.mimeType));
+    if (!h264.length) return;
+    txs.forEach(t => {
+      const kind = t?.sender?.track?.kind || t?.kind;
+      if (kind === 'video' && typeof t.setCodecPreferences === 'function') {
+        const others = caps.codecs.filter(c => !/H264/i.test(c.mimeType));
+        t.setCodecPreferences(h264.concat(others));
+      }
+    });
+  }catch(e){ console.warn('preferH264 failed:', e); }
+}
+async function enableAudioPlayback(){
+  try{
+    const els = comm==='meeting' ? [remoteVideo, audioMirror] : [player, audioMirror];
+    els.forEach(el=>{ if(!el) return; el.muted=false; el.removeAttribute('muted'); el.volume=1.0; el.setAttribute('playsinline',''); el.setAttribute('webkit-playsinline',''); });
+    if (isiOS){
+      if (!viewerAudioCtx) viewerAudioCtx = new (window.AudioContext||window.webkitAudioContext)();
+      if (viewerAudioCtx.state!=='running'){ try{ await viewerAudioCtx.resume(); }catch(_){} }
+      const sink = comm==='meeting' ? remoteVideo : player;
+      if (audioMirror && audioMirror.srcObject && viewerAudioCtx.state==='running'){
+        try{
+          const src = viewerAudioCtx.createMediaStreamSource(audioMirror.srcObject);
+          const gain = viewerAudioCtx.createGain(); gain.gain.value = 1.0;
+          src.connect(gain).connect(viewerAudioCtx.destination);
+        }catch(_){}
+      }
+      try{ await sink.play(); }catch(e){}
+    }else{
+      try{ await (comm==='meeting'?remoteVideo:player).play(); }catch(e){}
+    }
+    unmuteBtn.style.display='none'; tapUnmuteOverlay.style.display='none';
+  }catch(e){ console.warn('enableAudioPlayback failed:', e); }
+}
+function showIOSUnmuteOverlayIfNeeded() {
+  if (isiOS) {
+    tapUnmuteOverlay.style.display = 'flex';
+    unmuteBtn.style.display = 'none';
+  }
+}
+tapUnmuteBtn.addEventListener('click', enableAudioPlayback);
+unmuteBtn.addEventListener('click', enableAudioPlayback);
+
+/* ---------------- Media Builders ---------------- */
+async function getCameraStream(){
+  return await navigator.mediaDevices.getUserMedia({
+    video: {
+      facingMode,
+      width:  { ideal: 1280, max: 1920 },
+      height: { ideal: 720,  max: 1080 },
+      frameRate: { ideal: 30, max: 60 }
+    },
+    audio: { echoCancellation:true, noiseSuppression:true, autoGainControl:true }
+  });
+}
+
+async function getScreenStream(){
+  try{
+    return await navigator.mediaDevices.getDisplayMedia({ video:true, audio:true });
+  }catch(e){
+    log('[Host] getDisplayMedia with audio failed, retry video-only');
+    return await navigator.mediaDevices.getDisplayMedia({ video:true }); // 재시도
+  }
+}
+
+async function makeAmplifiedStreamFrom(sourceStream, fallbackUseMic=true){
+  audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)();
+  gainNode = audioCtx.createGain();
+  const initialGain = parseFloat(gainSlider?.value || '2') || 2.0;
+  gainNode.gain.value = initialGain;
+  if (gainVal) gainVal.textContent = initialGain.toFixed(1);
+
+  const videoTracks = sourceStream.getVideoTracks();
+  const inAudioTracks = sourceStream.getAudioTracks();
+  let outputAudioTrack = null;
+
+  if (inAudioTracks.length){
+    const src = audioCtx.createMediaStreamSource(sourceStream);
+    const dest = audioCtx.createMediaStreamDestination();
+    src.connect(gainNode).connect(dest);
+    outputAudioTrack = dest.stream.getAudioTracks()[0];
+  } else if (fallbackUseMic){
+    try{
+      const mic = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true, autoGainControl:true } });
+      const src = audioCtx.createMediaStreamSource(mic);
+      const dest = audioCtx.createMediaStreamDestination();
+      src.connect(gainNode).connect(dest);
+      outputAudioTrack = dest.stream.getAudioTracks()[0];
+    }catch(e){ log('[Audio] 마이크 획득 실패: '+e.message); }
+  }
+
+  return outputAudioTrack ? new MediaStream([...videoTracks, outputAudioTrack]) : new MediaStream([...videoTracks]);
+}
+async function buildLocalStreamForCurrentMode(){
+  if (comm==='broadcast'){
+    if (role!=='host'){
+      // 게스트는 영상 안 보냄(수신만)
+      return null;
+    }
+    const raw = (sourceMode==='screen') ? await getScreenStream() : await getCameraStream();
+    const amplified = await makeAmplifiedStreamFrom(raw, sourceMode==='screen');
+    return amplified;
+  }else{ // meeting
+    const cam = await getCameraStream();
+    // 미팅은 증폭 불필요(에코 위험). 원본 그대로 사용
+    return cam;
+  }
+}
+async function replaceVideoTrack(){
+  if (!pc || !localStream) return;
+
+  // 새 카메라 스트림 요청
+  const newStream = await getCameraStream();
+  const newTrack = newStream.getVideoTracks()[0];
+  const sender = pc.getSenders().find(s=>s.track && s.track.kind==='video');
+
+  if (sender && newTrack){
+    try{
+      await sender.replaceTrack(newTrack);
+    }catch(e){
+      console.warn('replaceTrack failed, renegotiate fallback:', e);
+      try{
+        const old = sender.track;
+        if (old) old.stop();
+        await sender.replaceTrack(null);
+        pc.addTrack(newTrack, localStream);
+        // (간단 대안) 재협상 로직이 필요하면 여기서 offer/answer 다시 만들도록 확장 가능
+      }catch(e2){ console.warn('fallback failed:', e2); }
+    }
+
+    // 로컬 스트림 갱신 + 프리뷰 갱신
+    localStream.getVideoTracks().forEach(t=>t.stop());
+    localStream = new MediaStream([ newTrack, ...localStream.getAudioTracks() ]);
+
+    if (comm==='meeting'){
+      localPreview.srcObject = localStream;
+      await forcePlay(localPreview);
+    }else{
+      player.srcObject = localStream;
+      await forcePlay(player);
+    }
+  }
+}
+
+
+/* ---------------- Signaling: Host / Guest ---------------- */
+function addPending(vid, data){
+  const li = document.createElement('li');
+  li.id = `pending-${vid}`;
+  li.innerHTML = `
+    <div>
+      <div><b>게스트</b> <span class="tag">${vid}</span></div>
+      <div class="muted" style="font-size:12px">오퍼 수신</div>
+    </div>
+    <div class="row">
+      <button class="primary">허용</button>
+      <button class="danger">거절</button>
+    </div>
+  `;
+  const [allowBtn, denyBtn] = li.querySelectorAll('button');
+  allowBtn.onclick = () => acceptGuest(vid, data, li);
+  denyBtn.onclick  = () => denyGuest(vid, li);
+  pendingEl.appendChild(li);
+}
+function denyGuest(vid, li){
+  db.ref(`rooms/${roomId}/offers/${vid}`).remove();
+  db.ref(`rooms/${roomId}/candidates/${vid}`).remove();
+  li.remove();
+}
+
+async function startHost(){
+  roomId = (roomIdInput.value||'').replace(/\s+/g,''); if(!roomId){ roomId='rm-'+randomId(9); roomIdInput.value=roomId; }
+  localStream = await buildLocalStreamForCurrentMode();
+  const vTrack = localStream?.getVideoTracks?.()[0];
+  if (vTrack) {
+    vTrack.onended = () => {
+      log('[Host] video track ended (창 닫힘/최소화 등). 다시 시작하세요.');
+      toast('공유 화면이 종료되었습니다. [시작]으로 다시 공유하세요.');
+      // 필요하면 자동 재시작:
+      // startBtn.click();
+    };
+  }
+
+
+  if (comm==='broadcast'){
+    if (localStream) {
+      player.srcObject = localStream;
+      await forcePlay(player);
+      try{ player.muted=true; player.setAttribute('muted',''); player.setAttribute('playsinline',''); player.setAttribute('webkit-playsinline',''); await player.play(); }catch(e){}
+    }
+  }else{ // meeting
+    // 미리보기/원격 UI
+    localPreview.srcObject = localStream;
+    await forcePlay(localPreview);
+    try{ localPreview.setAttribute('playsinline',''); localPreview.setAttribute('webkit-playsinline',''); await localPreview.play(); }catch(e){}
+  }
+
+  // 게스트 오퍼 대기
+  const offersRef = db.ref(`rooms/${roomId}/offers`);
+  offersRef.on('child_added', async snap=>{
+    const vid = snap.key; const data = snap.val();
+    if(!data || !data.sdp) return;
+    addPending(vid, data);
+    log('[Host] offer arrived from: ' + vid);
+  });
+
+  startBtn.disabled = true; stopBtn.disabled = false; isRunning=true;
+  logStatus(`호스트 대기/송출 중… 방 코드: ${roomId} · 모드: ${comm}`);
+  toast('게스트에게 방 코드를 공유하세요');
+}
+
+async function acceptGuest(vid, data, li){
+  try{
+    const _pc = createPeer();
+
+    // 내 트랙 추가(방송: 호스트 트랙만 / 미팅: 호스트 카메라)
+    if (localStream) localStream.getTracks().forEach(t=>_pc.addTrack(t, localStream));
+    preferH264(_pc);
+
+    // remote ICE (guest)
+    const remoteCandidatesRef = db.ref(`rooms/${roomId}/candidates/${vid}/guest`);
+    remoteCandidatesRef.on('child_added', s=>{ const c=s.val(); if(c) _pc.addIceCandidate(new RTCIceCandidate(c)); });
+
+    // my ICE (host)
+    const myCandidatesRef = db.ref(`rooms/${roomId}/candidates/${vid}/host`);
+    _pc.onicecandidate = (ev)=>{ if(ev.candidate){ myCandidatesRef.push(ev.candidate.toJSON()); } };
+
+    // 원격 트랙 수신 처리
+    _pc.ontrack = (ev)=>{
+      const stream = ev.streams[0];
+      if (comm==='broadcast'){
+        // 방송에서 호스트는 게스트 영상을 굳이 볼 필요 없음(원하면 player에 붙일 수 있음)
+      }else{
+        // 미팅: 상대 영상 표시
+        if (remoteVideo.srcObject !== stream){
+          remoteVideo.srcObject = stream;
+          (async ()=>{ try{ remoteVideo.setAttribute('playsinline',''); remoteVideo.setAttribute('webkit-playsinline',''); await remoteVideo.play(); }catch(e){} })();
+          audioMirror.srcObject = stream; // iOS 보조
+        }
+      }
+    };
+
+    // SDP 처리
+    await _pc.setRemoteDescription(new RTCSessionDescription({ type:'offer', sdp:data.sdp }));
+    const answer = await _pc.createAnswer();
+    await _pc.setLocalDescription(answer);
+    await db.ref(`rooms/${roomId}/answers/${vid}`).set({ sdp: answer.sdp, ts: Date.now() });
+
+    li.querySelector('.muted').textContent = '연결 진행 중…';
+    li.style.opacity = .7;
+    log('[Host] answered to ' + vid);
+  }catch(e){ alert('연결 실패: ' + e.message); }
+}
+
+async function startGuest(){
+  roomId = (roomIdInput.value||'').replace(/\s+/g,''); if(!roomId){ alert('방 코드를 입력하세요.'); return; }
+  viewerId = randomId(8);
+  pc = createPeer();
+
+  // 트랜시버/로컬 트랙 구성
+  if (comm==='broadcast'){
+    // 수신 전용
+    pc.addTransceiver('video', { direction:'recvonly' });
+    pc.addTransceiver('audio', { direction:'recvonly' });
+  }else{
+    // 미팅: 로컬 카메라 캡처 후 전송
+    localStream = await getCameraStream();
+    localPreview.srcObject = localStream;
+    try{ localPreview.setAttribute('playsinline',''); localPreview.setAttribute('webkit-playsinline',''); await localPreview.play(); }catch(e){}
+    localStream.getTracks().forEach(t=>pc.addTrack(t, localStream));
+  }
+
+  pc.ontrack = (ev)=>{
+    const stream = ev.streams[0];
+    if (comm==='broadcast'){
+      if (player.srcObject !== stream){
+        player.srcObject = stream;
+        
+        (async ()=>{ try{ 
+          player.setAttribute('playsinline',''); 
+          player.setAttribute('webkit-playsinline',''); 
+          await player.play(); 
+        }catch(e){} })();
+        audioMirror.srcObject = stream;
+      }
+      if (isiOS) showIOSUnmuteOverlayIfNeeded(); else unmuteBtn.style.display='inline-block';
+    }else{
+      if (remoteVideo.srcObject !== stream){
+        remoteVideo.srcObject = stream;
+        (async ()=>{ try{ 
+          remoteVideo.setAttribute('playsinline',''); 
+          remoteVideo.setAttribute('webkit-playsinline',''); 
+          await remoteVideo.play(); 
+        }catch(e){} })();
+        audioMirror.srcObject = stream;
+      }
+      if (isiOS) showIOSUnmuteOverlayIfNeeded(); else unmuteBtn.style.display='inline-block';
+    }
+    log(`[${role}] tracks: ` + stream.getTracks().map(t=>t.kind).join(', '));
+  };
+
+  // ICE
+  const myCandidatesRef = db.ref(`rooms/${roomId}/candidates/${viewerId}/guest`);
+  pc.onicecandidate = (ev)=>{ if(ev.candidate){ myCandidatesRef.push(ev.candidate.toJSON()); } };
+  const remoteCandidatesRef = db.ref(`rooms/${roomId}/candidates/${viewerId}/host`);
+  remoteCandidatesRef.on('child_added', s=>{ const c=s.val(); if(c) pc.addIceCandidate(new RTCIceCandidate(c)); });
+
+  // SDP
+  preferH264(pc);
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  const offerRef = db.ref(`rooms/${roomId}/offers/${viewerId}`);
+  await offerRef.set({ sdp: offer.sdp, ts: Date.now() }).catch(e=>{ alert('오퍼 업로드 실패: '+e.message); });
+
+  db.ref(`rooms/${roomId}/answers/${viewerId}`).on('value', async snap=>{
+    const val = snap.val();
+    if(val && val.sdp && pc.signalingState === 'have-local-offer'){
+      await pc.setRemoteDescription(new RTCSessionDescription({ type:'answer', sdp: val.sdp }));
+      logStatus(comm==='broadcast' ? '시청 중…' : '미팅 연결됨');
+      toast('연결 성공. 소리가 안 들리면 🔊 버튼 또는 화면 탭');
+    }
+  });
+
+  startBtn.disabled = true; stopBtn.disabled = false; isRunning=true;
+  logStatus(`접속 요청 완료. 호스트 승인 대기… (내 ID: ${viewerId})`);
+}
+
+/* ---------------- Controls ---------------- */
+startBtn.addEventListener('click', async ()=>{
+  try{
+    if (role==='host') await startHost(); else await startGuest();
+  }catch(e){ alert('시작 실패: '+e.message); }
+});
+stopBtn.addEventListener('click', async ()=>{ await cleanup(); });
+genRoom.addEventListener('click', ()=>{ roomIdInput.value = `rm-${randomId(9)}`; });
+window.addEventListener('DOMContentLoaded', ()=>{
+  const p = new URLSearchParams(location.search);
+  const r = p.get('role'), c=p.get('comm'), room=p.get('room'), a=p.get('autostart');
+  if (r && ['host','guest'].includes(r)) { document.querySelector(`input[name="role"][value="${r}"]`).checked=true; role=r; }
+  if (c && ['broadcast','meeting'].includes(c)) { document.querySelector(`input[name="comm"][value="${c}"]`).checked=true; comm=c; }
+  if (room) roomIdInput.value=room;
+  refreshUIByMode();
+  if (a==='1') setTimeout(()=>startBtn.click(), 400);
+});
+
+/* ---------------- Cleanup ---------------- */
+async function cleanup(){
+  try{
+    if(localStream){ localStream.getTracks().forEach(t=>t.stop()); localStream=null; }
+    if(pc){ pc.getSenders().forEach(s=>s.track && s.track.stop()); pc.close(); pc=null; }
+    if(roomId && role==='guest' && viewerId){
+      await db.ref(`rooms/${roomId}/offers/${viewerId}`).remove();
+      await db.ref(`rooms/${roomId}/answers/${viewerId}`).remove();
+      await db.ref(`rooms/${roomId}/candidates/${viewerId}`).remove();
+    }
+  }catch(e){}
+  isRunning=false; startBtn.disabled=false; stopBtn.disabled=true;
+  player.srcObject=null; remoteVideo.srcObject=null; localPreview.srcObject=null;
+  pendingEl.innerHTML=''; logStatus('대기 중…'); unmuteBtn.style.display='none'; tapUnmuteOverlay.style.display='none';
+}
+
+/* ---------------- Error log ---------------- */
+window.addEventListener('error', e=> log('[Error] ' + e.message));
+</script>
+</body>
+</html>
