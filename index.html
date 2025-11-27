@@ -35,11 +35,21 @@
     .local-preview-wrapper.show{display:block}
     #toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#0d1433;border:1px solid #2a3a77;color:#eaf0ff;padding:10px 14px;border-radius:12px;display:none}
     .hidden{display:none!important}
+    .chat-container{display:flex;flex-direction:column;height:300px}
+    .chat-messages{flex:1;overflow-y:auto;padding:8px;background:#0d1433;border-radius:8px;margin-bottom:8px;max-height:250px}
+    .chat-message{padding:6px 8px;margin-bottom:6px;border-radius:6px;font-size:13px;word-wrap:break-word}
+    .chat-message.own{background:#1b285c;text-align:right}
+    .chat-message.other{background:#0f173b}
+    .chat-message .sender{font-size:11px;color:#a7b3d4;margin-bottom:2px}
+    .chat-message .time{font-size:10px;color:#6aa6ff;margin-left:6px}
+    .chat-input-row{display:flex;gap:6px}
+    .chat-input-row input{flex:1;padding:8px;border-radius:8px;border:1px solid #2a3a77;background:#0d1433;color:#eaf0ff;font-size:13px}
+    .chat-input-row button{padding:8px 12px}
   </style>
 </head>
 <body>
 <header>
-  <h1>승인제 WebRTC (방송/미팅-1.1)</h1>
+  <h1>승인제 WebRTC (방송/미팅-1.2)</h1>
   <div class="row">
     <span class="tag">P2P</span>
     <span class="tag">Firebase RTDB</span>
@@ -137,8 +147,24 @@
     </div>
     <hr style="border:none;border-top:1px solid #2a3a77;margin:12px 0"/>
     <div>
+      <h3 style="margin:0 0 8px 0">채팅</h3>
+      <div class="chat-container">
+        <div id="chatMessages" class="chat-messages"></div>
+        <div class="chat-input-row">
+          <input id="chatInput" type="text" placeholder="메시지 입력..." maxlength="200" />
+          <button id="chatSendBtn">전송</button>
+        </div>
+      </div>
+    </div>
+    <hr style="border:none;border-top:1px solid #2a3a77;margin:12px 0"/>
+    <div>
+      <h3 style="margin:0 0 8px 0">연결 정보</h3>
+      <div id="info" class="hint">-</div>
+    </div>
+    <hr style="border:none;border-top:1px solid #2a3a77;margin:12px 0"/>
+    <div>
       <h3 style="margin:0 0 8px 0">로그</h3>
-      <pre id="log" class="hint" style="white-space:pre-wrap;max-height:220px;overflow:auto"></pre>
+      <pre id="log" class="hint" style="white-space:pre-wrap;max-height:150px;overflow:auto"></pre>
     </div>
   </aside>
 </main>
@@ -206,6 +232,9 @@ const sourceWrap   = document.getElementById('sourceWrap');
 const remoteVideosGrid = document.getElementById('remoteVideosGrid');
 const localPreviewWrapper = document.getElementById('localPreviewWrapper');
 const togglePreviewBtn = document.getElementById('togglePreviewBtn');
+const chatMessages = document.getElementById('chatMessages');
+const chatInput = document.getElementById('chatInput');
+const chatSendBtn = document.getElementById('chatSendBtn');
 
 /* ---------------- State ---------------- */
 let role = 'host';                 // 'host' | 'guest'
@@ -224,8 +253,10 @@ let showLocalPreview = false;       // 내 미리보기 표시 여부
 let firebaseListeners = {           // Firebase 리스너 정리를 위한 참조
   offers: null,
   answers: null,
-  candidates: {}
+  candidates: {},
+  chat: null
 };
+let myUserId = '';                  // 내 사용자 ID (채팅용)
 
 /* ---------------- Utils ---------------- */
 // 강제 재생 보조(모바일 자동재생 차단 우회)
@@ -432,6 +463,104 @@ togglePreviewBtn.addEventListener('click', ()=>{
   }
 });
 
+/* ---------------- Chat Functions ---------------- */
+function formatTime(timestamp){
+  const d = new Date(timestamp);
+  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+
+function addChatMessage(senderId, senderName, message, timestamp, isOwn = false){
+  if (!chatMessages) return;
+  
+  const msgDiv = document.createElement('div');
+  msgDiv.className = `chat-message ${isOwn ? 'own' : 'other'}`;
+  
+  const senderSpan = document.createElement('div');
+  senderSpan.className = 'sender';
+  senderSpan.textContent = isOwn ? '나' : (senderName || (senderId ? senderId.substring(0,6) : '알 수 없음'));
+  
+  const timeSpan = document.createElement('span');
+  timeSpan.className = 'time';
+  timeSpan.textContent = formatTime(timestamp || Date.now());
+  
+  const msgText = document.createElement('div');
+  msgText.textContent = message || '';
+  msgText.style.marginTop = '2px';
+  msgText.style.wordBreak = 'break-word';
+  
+  senderSpan.appendChild(timeSpan);
+  msgDiv.appendChild(senderSpan);
+  msgDiv.appendChild(msgText);
+  
+  chatMessages.appendChild(msgDiv);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+  
+  // 메시지가 너무 많으면 오래된 메시지 제거 (메모리 관리)
+  const maxMessages = 100;
+  while (chatMessages.children.length > maxMessages) {
+    chatMessages.removeChild(chatMessages.firstChild);
+  }
+}
+
+async function sendChatMessage(){
+  const message = chatInput.value.trim();
+  if (!message || !roomId || !myUserId || !isRunning) {
+    if (!isRunning) toast('먼저 방에 참여하세요');
+    return;
+  }
+  
+  // 메시지 길이 제한 (200자)
+  const trimmedMessage = message.substring(0, 200);
+  
+  const chatData = {
+    senderId: myUserId,
+    senderName: role === 'host' ? '호스트' : `게스트 ${myUserId.substring(0,6)}`,
+    message: trimmedMessage,
+    timestamp: Date.now()
+  };
+  
+  try {
+    await db.ref(`rooms/${roomId}/chat`).push(chatData);
+    chatInput.value = '';
+  } catch(e) {
+    log('[Chat] 전송 실패: ' + e.message);
+    toast('메시지 전송 실패');
+    console.error('Chat send error:', e);
+  }
+}
+
+function initChat(){
+  if (!roomId) return;
+  
+  // 기존 리스너 제거
+  if (firebaseListeners.chat) {
+    firebaseListeners.chat.off();
+  }
+  
+  // 기존 메시지 로드
+  const chatRef = db.ref(`rooms/${roomId}/chat`);
+  firebaseListeners.chat = chatRef;
+  
+  chatRef.on('child_added', snap => {
+    try {
+      const data = snap.val();
+      if (!data || !data.message || typeof data.message !== 'string') return;
+      if (!data.senderId || !data.timestamp) return;
+      const isOwn = data.senderId === myUserId;
+      addChatMessage(data.senderId, data.senderName || '알 수 없음', data.message, data.timestamp, isOwn);
+    } catch(e) {
+      console.warn('[Chat] 메시지 처리 오류:', e);
+    }
+  });
+}
+
+chatSendBtn.addEventListener('click', sendChatMessage);
+chatInput.addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') {
+    sendChatMessage();
+  }
+});
+
 /* ---------------- Media Builders ---------------- */
 async function getCameraStream(){
   return await navigator.mediaDevices.getUserMedia({
@@ -588,6 +717,7 @@ function denyGuest(vid, li){
 
 async function startHost(){
   roomId = (roomIdInput.value||'').replace(/\s+/g,''); if(!roomId){ roomId='rm-'+randomId(9); roomIdInput.value=roomId; }
+  myUserId = 'host-' + randomId(6);
   localStream = await buildLocalStreamForCurrentMode();
   const vTrack = localStream?.getVideoTracks?.()[0];
   if (vTrack) {
@@ -628,6 +758,10 @@ async function startHost(){
   startBtn.disabled = true; stopBtn.disabled = false; isRunning=true;
   logStatus(`호스트 대기/송출 중… 방 코드: ${roomId} · 모드: ${comm}`);
   toast('게스트에게 방 코드를 공유하세요');
+  
+  // 채팅 초기화
+  chatMessages.innerHTML = '';
+  initChat();
 }
 
 // 원격 비디오 엘리먼트 생성
@@ -747,6 +881,7 @@ async function acceptGuest(vid, data, li){
 async function startGuest(){
   roomId = (roomIdInput.value||'').replace(/\s+/g,''); if(!roomId){ alert('방 코드를 입력하세요.'); return; }
   viewerId = randomId(8);
+  myUserId = viewerId;
   pc = createPeer();
 
   // 트랜시버/로컬 트랙 구성
@@ -829,6 +964,10 @@ async function startGuest(){
 
   startBtn.disabled = true; stopBtn.disabled = false; isRunning=true;
   logStatus(`접속 요청 완료. 호스트 승인 대기… (내 ID: ${viewerId})`);
+  
+  // 채팅 초기화
+  chatMessages.innerHTML = '';
+  initChat();
 }
 
 /* ---------------- Controls ---------------- */
@@ -860,6 +999,10 @@ async function cleanup(){
     if (firebaseListeners.answers) {
       firebaseListeners.answers.off();
       firebaseListeners.answers = null;
+    }
+    if (firebaseListeners.chat) {
+      firebaseListeners.chat.off();
+      firebaseListeners.chat = null;
     }
     Object.values(firebaseListeners.candidates).forEach(ref => {
       if (ref) ref.off();
@@ -909,6 +1052,9 @@ async function cleanup(){
   showLocalPreview = false;
   localPreviewWrapper.classList.remove('show');
   togglePreviewBtn.textContent = '내 화면 보기';
+  chatMessages.innerHTML = '';
+  chatInput.value = '';
+  myUserId = '';
 }
 
 /* ---------------- Error log ---------------- */
