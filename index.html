@@ -28,6 +28,11 @@
     footer{padding:10px 16px;color:#a7b3d4;font-size:12px;text-align:center}
     .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
     .grid-2h{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+    .meeting-grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(300px, 1fr));gap:10px;margin-top:10px}
+    .remote-video-wrapper{position:relative}
+    .remote-video-wrapper small{position:absolute;top:8px;left:8px;background:rgba(0,0,0,.6);padding:4px 8px;border-radius:6px;z-index:1}
+    .local-preview-wrapper{position:relative;display:none}
+    .local-preview-wrapper.show{display:block}
     #toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#0d1433;border:1px solid #2a3a77;color:#eaf0ff;padding:10px 14px;border-radius:12px;display:none}
     .hidden{display:none!important}
   </style>
@@ -49,15 +54,15 @@
     <!-- 방송 모드: 단일 플레이어 -->
     <video id="player" class="" autoplay playsinline webkit-playsinline muted controls></video>
 
-    <!-- 미팅 모드: 원격/내미리보기 2분할 -->
-    <div id="meetingVideos" class="grid-2h hidden">
-      <div>
-        <small class="muted">상대(원격)</small>
-        <video id="remoteVideo" autoplay playsinline webkit-playsinline controls></video>
-      </div>
-      <div>
+    <!-- 미팅 모드: 다자간 비디오 그리드 -->
+    <div id="meetingVideos" class="hidden">
+      <div class="meeting-grid" id="remoteVideosGrid"></div>
+      <div class="local-preview-wrapper" id="localPreviewWrapper">
         <small class="muted">나(미리보기 · 항상 음소거)</small>
         <video id="localPreview" autoplay playsinline webkit-playsinline muted controls></video>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button id="togglePreviewBtn">내 화면 보기/숨기기</button>
       </div>
     </div>
 
@@ -199,6 +204,9 @@ const muteMicBtn   = document.getElementById('muteMicBtn');
 const muteCamBtn   = document.getElementById('muteCamBtn');
 const cameraCtrl   = document.getElementById('cameraCtrl');
 const sourceWrap   = document.getElementById('sourceWrap');
+const remoteVideosGrid = document.getElementById('remoteVideosGrid');
+const localPreviewWrapper = document.getElementById('localPreviewWrapper');
+const togglePreviewBtn = document.getElementById('togglePreviewBtn');
 
 /* ---------------- State ---------------- */
 let role = 'host';                 // 'host' | 'guest'
@@ -208,9 +216,12 @@ let facingMode = 'user';           // 카메라 전/후면
 let roomId = '';
 let viewerId = '';
 let isRunning = false;
-let pc = null;
+let pc = null;                      // 게스트용 단일 연결
+let peerConnections = new Map();    // 호스트용: 게스트 ID -> PeerConnection
+let remoteVideos = new Map();       // 게스트 ID -> video 엘리먼트
 let localStream = null;            // 내가 보내는 스트림(모드별 구성)
 let audioCtx = null, gainNode = null, viewerAudioCtx = null;
+let showLocalPreview = false;       // 내 미리보기 표시 여부
 
 /* ---------------- Utils ---------------- */
 // 강제 재생 보조(모바일 자동재생 차단 우회)
@@ -331,12 +342,40 @@ function preferH264(pc){
 }
 async function enableAudioPlayback(){
   try{
-    const els = comm==='meeting' ? [remoteVideo, audioMirror] : [player, audioMirror];
-    els.forEach(el=>{ if(!el) return; el.muted=false; el.removeAttribute('muted'); el.volume=1.0; el.setAttribute('playsinline',''); el.setAttribute('webkit-playsinline',''); });
+    if (comm==='meeting') {
+      // 미팅 모드: 모든 원격 비디오의 음소거 해제
+      remoteVideos.forEach(video => {
+        if (video) {
+          video.muted = false;
+          video.removeAttribute('muted');
+          video.volume = 1.0;
+          video.setAttribute('playsinline','');
+          video.setAttribute('webkit-playsinline','');
+          video.play().catch(e => {});
+        }
+      });
+      if (audioMirror && audioMirror.srcObject) {
+        audioMirror.muted = false;
+        audioMirror.removeAttribute('muted');
+      }
+    } else {
+      // 방송 모드
+      if (player) {
+        player.muted = false;
+        player.removeAttribute('muted');
+        player.volume = 1.0;
+        player.setAttribute('playsinline','');
+        player.setAttribute('webkit-playsinline','');
+      }
+      if (audioMirror) {
+        audioMirror.muted = false;
+        audioMirror.removeAttribute('muted');
+      }
+    }
+    
     if (isiOS){
       if (!viewerAudioCtx) viewerAudioCtx = new (window.AudioContext||window.webkitAudioContext)();
       if (viewerAudioCtx.state!=='running'){ try{ await viewerAudioCtx.resume(); }catch(_){} }
-      const sink = comm==='meeting' ? remoteVideo : player;
       if (audioMirror && audioMirror.srcObject && viewerAudioCtx.state==='running'){
         try{
           const src = viewerAudioCtx.createMediaStreamSource(audioMirror.srcObject);
@@ -344,9 +383,22 @@ async function enableAudioPlayback(){
           src.connect(gain).connect(viewerAudioCtx.destination);
         }catch(_){}
       }
-      try{ await sink.play(); }catch(e){}
+      // 모든 비디오 재생 시도
+      if (comm==='meeting') {
+        remoteVideos.forEach(video => {
+          if (video) video.play().catch(e => {});
+        });
+      } else {
+        if (player) player.play().catch(e => {});
+      }
     }else{
-      try{ await (comm==='meeting'?remoteVideo:player).play(); }catch(e){}
+      if (comm==='meeting') {
+        remoteVideos.forEach(video => {
+          if (video) video.play().catch(e => {});
+        });
+      } else {
+        if (player) player.play().catch(e => {});
+      }
     }
     unmuteBtn.style.display='none'; tapUnmuteOverlay.style.display='none';
   }catch(e){ console.warn('enableAudioPlayback failed:', e); }
@@ -359,6 +411,18 @@ function showIOSUnmuteOverlayIfNeeded() {
 }
 tapUnmuteBtn.addEventListener('click', enableAudioPlayback);
 unmuteBtn.addEventListener('click', enableAudioPlayback);
+
+// 내 미리보기 토글
+togglePreviewBtn.addEventListener('click', ()=>{
+  showLocalPreview = !showLocalPreview;
+  if (showLocalPreview) {
+    localPreviewWrapper.classList.add('show');
+    togglePreviewBtn.textContent = '내 화면 숨기기';
+  } else {
+    localPreviewWrapper.classList.remove('show');
+    togglePreviewBtn.textContent = '내 화면 보기';
+  }
+});
 
 /* ---------------- Media Builders ---------------- */
 async function getCameraStream(){
@@ -484,6 +548,18 @@ function addPending(vid, data){
 function denyGuest(vid, li){
   db.ref(`rooms/${roomId}/offers/${vid}`).remove();
   db.ref(`rooms/${roomId}/candidates/${vid}`).remove();
+  db.ref(`rooms/${roomId}/answers/${vid}`).remove();
+  
+  // 연결이 이미 되어있다면 정리
+  const _pc = peerConnections.get(vid);
+  if (_pc) {
+    try {
+      _pc.getSenders().forEach(s => s.track && s.track.stop());
+      _pc.close();
+    } catch(e) {}
+    peerConnections.delete(vid);
+  }
+  removeRemoteVideoElement(vid);
   li.remove();
 }
 
@@ -508,10 +584,12 @@ async function startHost(){
       try{ player.muted=true; player.setAttribute('muted',''); player.setAttribute('playsinline',''); player.setAttribute('webkit-playsinline',''); await player.play(); }catch(e){}
     }
   }else{ // meeting
-    // 미리보기/원격 UI
-    localPreview.srcObject = localStream;
-    await forcePlay(localPreview);
-    try{ localPreview.setAttribute('playsinline',''); localPreview.setAttribute('webkit-playsinline',''); await localPreview.play(); }catch(e){}
+    // 미리보기 UI (기본적으로 숨김)
+    if (showLocalPreview) {
+      localPreview.srcObject = localStream;
+      await forcePlay(localPreview);
+      try{ localPreview.setAttribute('playsinline',''); localPreview.setAttribute('webkit-playsinline',''); await localPreview.play(); }catch(e){}
+    }
   }
 
   // 게스트 오퍼 대기
@@ -528,9 +606,52 @@ async function startHost(){
   toast('게스트에게 방 코드를 공유하세요');
 }
 
+// 원격 비디오 엘리먼트 생성
+function createRemoteVideoElement(vid, label=''){
+  const wrapper = document.createElement('div');
+  wrapper.className = 'remote-video-wrapper';
+  wrapper.id = `remote-video-${vid}`;
+  
+  const labelEl = document.createElement('small');
+  labelEl.className = 'muted';
+  labelEl.textContent = label || `참가자 ${vid.substring(0,6)}`;
+  
+  const video = document.createElement('video');
+  video.id = `video-${vid}`;
+  video.autoplay = true;
+  video.playsInline = true;
+  video.setAttribute('playsinline', '');
+  video.setAttribute('webkit-playsinline', '');
+  video.controls = true;
+  video.style.width = '100%';
+  video.style.background = '#000';
+  video.style.borderRadius = '12px';
+  
+  wrapper.appendChild(labelEl);
+  wrapper.appendChild(video);
+  remoteVideosGrid.appendChild(wrapper);
+  
+  return video;
+}
+
+// 원격 비디오 엘리먼트 제거
+function removeRemoteVideoElement(vid){
+  const wrapper = document.getElementById(`remote-video-${vid}`);
+  if (wrapper) {
+    const video = wrapper.querySelector('video');
+    if (video && video.srcObject) {
+      video.srcObject.getTracks().forEach(t => t.stop());
+      video.srcObject = null;
+    }
+    wrapper.remove();
+  }
+  remoteVideos.delete(vid);
+}
+
 async function acceptGuest(vid, data, li){
   try{
     const _pc = createPeer();
+    peerConnections.set(vid, _pc);
 
     // 내 트랙 추가(방송: 호스트 트랙만 / 미팅: 호스트 카메라)
     if (localStream) localStream.getTracks().forEach(t=>_pc.addTrack(t, localStream));
@@ -548,14 +669,33 @@ async function acceptGuest(vid, data, li){
     _pc.ontrack = (ev)=>{
       const stream = ev.streams[0];
       if (comm==='broadcast'){
-        // 방송에서 호스트는 게스트 영상을 굳이 볼 필요 없음(원하면 player에 붙일 수 있음)
+        // 방송에서 호스트는 게스트 영상을 굳이 볼 필요 없음
       }else{
-        // 미팅: 상대 영상 표시
-        if (remoteVideo.srcObject !== stream){
-          remoteVideo.srcObject = stream;
-          (async ()=>{ try{ remoteVideo.setAttribute('playsinline',''); remoteVideo.setAttribute('webkit-playsinline',''); await remoteVideo.play(); }catch(e){} })();
-          audioMirror.srcObject = stream; // iOS 보조
+        // 미팅: 각 게스트마다 별도 비디오 엘리먼트 생성
+        let videoEl = remoteVideos.get(vid);
+        if (!videoEl) {
+          videoEl = createRemoteVideoElement(vid, `게스트 ${vid.substring(0,6)}`);
+          remoteVideos.set(vid, videoEl);
         }
+        if (videoEl.srcObject !== stream) {
+          videoEl.srcObject = stream;
+          (async ()=>{ 
+            try{ 
+              videoEl.setAttribute('playsinline',''); 
+              videoEl.setAttribute('webkit-playsinline',''); 
+              await videoEl.play(); 
+            }catch(e){} 
+          })();
+        }
+      }
+    };
+
+    // 연결 종료 처리
+    _pc.onconnectionstatechange = () => {
+      if (_pc.connectionState === 'closed' || _pc.connectionState === 'failed' || _pc.connectionState === 'disconnected') {
+        log(`[Host] 연결 종료: ${vid}`);
+        removeRemoteVideoElement(vid);
+        peerConnections.delete(vid);
       }
     };
 
@@ -568,7 +708,11 @@ async function acceptGuest(vid, data, li){
     li.querySelector('.muted').textContent = '연결 진행 중…';
     li.style.opacity = .7;
     log('[Host] answered to ' + vid);
-  }catch(e){ alert('연결 실패: ' + e.message); }
+  }catch(e){ 
+    alert('연결 실패: ' + e.message); 
+    peerConnections.delete(vid);
+    removeRemoteVideoElement(vid);
+  }
 }
 
 async function startGuest(){
@@ -584,8 +728,11 @@ async function startGuest(){
   }else{
     // 미팅: 로컬 카메라 캡처 후 전송
     localStream = await getCameraStream();
-    localPreview.srcObject = localStream;
-    try{ localPreview.setAttribute('playsinline',''); localPreview.setAttribute('webkit-playsinline',''); await localPreview.play(); }catch(e){}
+    // 미리보기는 기본적으로 숨김
+    if (showLocalPreview) {
+      localPreview.srcObject = localStream;
+      try{ localPreview.setAttribute('playsinline',''); localPreview.setAttribute('webkit-playsinline',''); await localPreview.play(); }catch(e){}
+    }
     localStream.getTracks().forEach(t=>pc.addTrack(t, localStream));
   }
 
@@ -604,12 +751,20 @@ async function startGuest(){
       }
       if (isiOS) showIOSUnmuteOverlayIfNeeded(); else unmuteBtn.style.display='inline-block';
     }else{
-      if (remoteVideo.srcObject !== stream){
-        remoteVideo.srcObject = stream;
+      // 미팅 모드: 호스트의 스트림을 표시
+      // 게스트는 호스트와만 연결되므로 하나의 비디오만 표시
+      const hostVideoId = 'host';
+      let videoEl = remoteVideos.get(hostVideoId);
+      if (!videoEl) {
+        videoEl = createRemoteVideoElement(hostVideoId, '호스트');
+        remoteVideos.set(hostVideoId, videoEl);
+      }
+      if (videoEl.srcObject !== stream) {
+        videoEl.srcObject = stream;
         (async ()=>{ try{ 
-          remoteVideo.setAttribute('playsinline',''); 
-          remoteVideo.setAttribute('webkit-playsinline',''); 
-          await remoteVideo.play(); 
+          videoEl.setAttribute('playsinline',''); 
+          videoEl.setAttribute('webkit-playsinline',''); 
+          await videoEl.play(); 
         }catch(e){} })();
         audioMirror.srcObject = stream;
       }
@@ -667,6 +822,23 @@ async function cleanup(){
   try{
     if(localStream){ localStream.getTracks().forEach(t=>t.stop()); localStream=null; }
     if(pc){ pc.getSenders().forEach(s=>s.track && s.track.stop()); pc.close(); pc=null; }
+    
+    // 호스트: 모든 게스트 연결 정리
+    if (role==='host' && comm==='meeting') {
+      peerConnections.forEach((_pc, vid) => {
+        try {
+          _pc.getSenders().forEach(s => s.track && s.track.stop());
+          _pc.close();
+        } catch(e) {}
+      });
+      peerConnections.clear();
+      
+      // 모든 원격 비디오 제거
+      remoteVideos.forEach((video, vid) => {
+        removeRemoteVideoElement(vid);
+      });
+    }
+    
     if(roomId && role==='guest' && viewerId){
       await db.ref(`rooms/${roomId}/offers/${viewerId}`).remove();
       await db.ref(`rooms/${roomId}/answers/${viewerId}`).remove();
@@ -674,8 +846,13 @@ async function cleanup(){
     }
   }catch(e){}
   isRunning=false; startBtn.disabled=false; stopBtn.disabled=true;
-  player.srcObject=null; remoteVideo.srcObject=null; localPreview.srcObject=null;
+  player.srcObject=null; localPreview.srcObject=null;
+  remoteVideosGrid.innerHTML='';
+  remoteVideos.clear();
   pendingEl.innerHTML=''; logStatus('대기 중…'); unmuteBtn.style.display='none'; tapUnmuteOverlay.style.display='none';
+  showLocalPreview = false;
+  localPreviewWrapper.classList.remove('show');
+  togglePreviewBtn.textContent = '내 화면 보기';
 }
 
 /* ---------------- Error log ---------------- */
