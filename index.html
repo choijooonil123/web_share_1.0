@@ -7,6 +7,7 @@
   <style>
     :root{ --bg:#0b1020; --panel:#10183a; --ink:#eaf0ff; --muted:#a7b3d4; --brand:#6aa6ff; --ok:#4cd97b; --danger:#ff6a6a; }
     *{box-sizing:border-box}
+    html,body{overflow:visible;min-width:100vw;min-height:100vh}
     body{margin:0;font-family:ui-sans-serif,system-ui,Apple SD Gothic Neo,Noto Sans KR,Segoe UI,Roboto,sans-serif;color:var(--ink);background:radial-gradient(1000px 700px at 80% -10%,#1a2650 0%,#0b1020 45%)}
     header{padding:18px 20px 10px;display:flex;gap:12px;align-items:center;justify-content:space-between}
     h1{margin:0;font-size:18px}
@@ -36,7 +37,7 @@
     .local-preview-wrapper.show{display:block}
     #toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#0d1433;border:1px solid #2a3a77;color:#eaf0ff;padding:10px 14px;border-radius:12px;display:none}
     .hidden{display:none!important}
-    .pip-overlay{position:absolute;top:20px;right:20px;width:240px;height:180px;min-width:120px;min-height:90px;z-index:1000;background:rgba(16,24,58,.95);border:2px solid #22306b;border-radius:12px;padding:8px;box-shadow:0 8px 30px rgba(0,0,0,.5);display:none;user-select:none;box-sizing:border-box}
+    .pip-overlay{position:absolute;top:20px;right:20px;width:240px;height:180px;min-width:120px;min-height:90px;z-index:1000;background:rgba(16,24,58,.95);border:2px solid #22306b;border-radius:12px;padding:8px;box-shadow:0 8px 30px rgba(0,0,0,.5);display:none;user-select:none;box-sizing:border-box;overflow:visible}
     .pip-overlay.show{display:block}
     .pip-overlay video{width:100%;height:calc(100% - 30px);border-radius:8px;background:#000;pointer-events:none;object-fit:contain;display:block}
     .pip-overlay .pip-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;cursor:move}
@@ -66,7 +67,7 @@
 </head>
 <body>
 <header>
-  <h1>승인제 WebRTC (방송/미팅-1.9)</h1>
+  <h1>승인제 WebRTC (방송/미팅-1.2)</h1>
   <div class="row">
     <span class="tag">P2P</span>
     <span class="tag">Firebase RTDB</span>
@@ -300,8 +301,8 @@ let audioCtx = null, gainNode = null, viewerAudioCtx = null;
 let showLocalPreview = true;        // 내 미리보기 표시 여부 (기본값: 표시)
 let isScreenSharing = false;       // 화면공유 중 여부
 let screenShareStream = null;       // 화면공유 스트림 (종료 감지용)
-let hostCameraStream = null;        // 호스트 카메라 스트림 (PiP용)
-let showHostCameraPip = false;      // 호스트 카메라 PiP 표시 여부
+let hostCameraStream = null;        // 호스트 카메라 스트림 (별도 창용)
+let hostCameraWindow = null;        // 호스트 카메라 별도 창
 let broadcastVideoTracks = [];     // 방송 모드 게스트가 받은 비디오 트랙 추적
 let broadcastScreenTrack = null;   // 방송 모드 게스트가 받은 화면공유 트랙
 let broadcastCameraTrack = null;   // 방송 모드 게스트가 받은 카메라 트랙
@@ -791,6 +792,54 @@ function makePipDraggableAndResizable(pipElement) {
       pipElement.style.bottom = 'auto';
       if (!isFullscreenPip) {
         pipElement.style.position = 'absolute'; // absolute로 설정하여 스크롤과 함께 이동
+        
+        // body 크기를 PiP 위치에 맞게 확장하여 화면 밖에 있어도 보이도록
+        const pipRect = pipElement.getBoundingClientRect();
+        const bodyRect = document.body.getBoundingClientRect();
+        const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
+        const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+        
+        // PiP의 절대 위치 계산
+        const pipAbsLeft = newLeft;
+        const pipAbsTop = newTop;
+        const pipWidth = pipElement.offsetWidth;
+        const pipHeight = pipElement.offsetHeight;
+        
+        // body의 현재 크기
+        const currentBodyWidth = Math.max(document.body.scrollWidth, window.innerWidth);
+        const currentBodyHeight = Math.max(document.body.scrollHeight, window.innerHeight);
+        
+        // PiP가 포함되도록 필요한 최소 크기 계산 (음수 좌표도 고려)
+        // 음수 좌표인 경우 body의 시작 위치를 조정하기 위해 padding 사용
+        let bodyPaddingLeft = 0;
+        let bodyPaddingTop = 0;
+        
+        if (pipAbsLeft < 0) {
+          bodyPaddingLeft = Math.abs(pipAbsLeft) + 20;
+          document.body.style.paddingLeft = bodyPaddingLeft + 'px';
+        }
+        if (pipAbsTop < 0) {
+          bodyPaddingTop = Math.abs(pipAbsTop) + 20;
+          document.body.style.paddingTop = bodyPaddingTop + 'px';
+        }
+        
+        // PiP의 실제 위치를 padding을 고려하여 조정
+        if (bodyPaddingLeft > 0 || bodyPaddingTop > 0) {
+          pipElement.style.left = (pipAbsLeft + bodyPaddingLeft) + 'px';
+          pipElement.style.top = (pipAbsTop + bodyPaddingTop) + 'px';
+        }
+        
+        // PiP가 포함되도록 필요한 최소 크기 계산
+        const adjustedLeft = pipAbsLeft + bodyPaddingLeft;
+        const adjustedTop = pipAbsTop + bodyPaddingTop;
+        const requiredWidth = Math.max(currentBodyWidth, adjustedLeft + pipWidth + 20);
+        const requiredHeight = Math.max(currentBodyHeight, adjustedTop + pipHeight + 20);
+        
+        // body 크기 확장 (필요한 경우만)
+        if (requiredWidth > currentBodyWidth || requiredHeight > currentBodyHeight) {
+          document.body.style.minWidth = requiredWidth + 'px';
+          document.body.style.minHeight = requiredHeight + 'px';
+        }
       }
     } else if (isResizing) {
       const deltaX = clientX - startX;
@@ -910,6 +959,158 @@ async function makeAmplifiedStreamFrom(sourceStream, fallbackUseMic=true){
 
   return outputAudioTrack ? new MediaStream([...videoTracks, outputAudioTrack]) : new MediaStream([...videoTracks]);
 }
+
+/* ---------------- 호스트 카메라 별도 창 ---------------- */
+function openHostCameraWindow(cameraStream) {
+  if (!cameraStream || !cameraStream.getVideoTracks()[0]) {
+    log('[Host] 카메라 스트림이 없어 별도 창을 열 수 없습니다');
+    return;
+  }
+  
+  // 기존 창이 열려있으면 닫기
+  if (hostCameraWindow && !hostCameraWindow.closed) {
+    hostCameraWindow.close();
+  }
+  
+  try {
+    // 새 창 열기
+    const windowFeatures = 'width=400,height=300,left=100,top=100,resizable=yes,scrollbars=no,menubar=no,toolbar=no';
+    hostCameraWindow = window.open('', 'hostCameraWindow', windowFeatures);
+    
+    if (!hostCameraWindow) {
+      toast('팝업이 차단되었습니다. 팝업 차단을 해제해주세요.');
+      log('[Host] 팝업 창 열기 실패 (팝업 차단)');
+      return;
+    }
+    
+    // 창 HTML 작성
+    hostCameraWindow.document.write(`
+      <!DOCTYPE html>
+      <html lang="ko">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>호스트 카메라</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body {
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            font-family: ui-sans-serif, system-ui, sans-serif;
+          }
+          video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background: #000;
+          }
+          .title {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: #fff;
+            background: rgba(0,0,0,0.6);
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            z-index: 10;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="title">호스트 카메라</div>
+        <video id="cameraVideo" autoplay playsinline muted></video>
+        <script>
+          const video = document.getElementById('cameraVideo');
+          
+          // 부모 창에 준비 완료 알림
+          if (window.opener && !window.opener.closed) {
+            try {
+              window.opener.postMessage({ type: 'cameraWindowReady' }, '*');
+            } catch(err) {}
+          }
+          
+          // 창이 닫힐 때 부모 창에 알림
+          window.addEventListener('beforeunload', () => {
+            if (window.opener && !window.opener.closed) {
+              try {
+                window.opener.postMessage({ type: 'cameraWindowClosed' }, '*');
+              } catch(err) {}
+            }
+          });
+        </script>
+      </body>
+      </html>
+    `);
+    
+    // 스트림을 새 창에 전달
+    hostCameraWindow.document.close();
+    
+    // 스트림 설정 (준비 완료 후 직접 설정)
+    const setStream = () => {
+      try {
+        const video = hostCameraWindow.document.getElementById('cameraVideo');
+        if (video && cameraStream) {
+          video.srcObject = cameraStream;
+          video.play().catch(e => {
+            console.warn('[Host] 별도 창 비디오 재생 실패:', e);
+          });
+        }
+      } catch(e) {
+        console.error('[Host] 별도 창 스트림 설정 실패:', e);
+      }
+    };
+    
+    // 준비 완료 메시지 수신 대기
+    const messageHandler = (e) => {
+      if (e.data && e.data.type === 'cameraWindowReady') {
+        window.removeEventListener('message', messageHandler);
+        setStream();
+      }
+    };
+    window.addEventListener('message', messageHandler);
+    
+    // 타임아웃으로도 시도 (메시지가 안 오는 경우 대비)
+    setTimeout(setStream, 200);
+    
+    // 창이 닫힐 때 감지
+    const checkClosed = setInterval(() => {
+      if (hostCameraWindow && hostCameraWindow.closed) {
+        clearInterval(checkClosed);
+        hostCameraWindow = null;
+        log('[Host] 카메라 별도 창이 닫혔습니다');
+      }
+    }, 500);
+    
+    log('[Host] 호스트 카메라 별도 창 열림');
+  } catch(e) {
+    console.error('[Host] 별도 창 열기 실패:', e);
+    log('[Host] 별도 창 열기 실패: ' + e.message);
+    toast('별도 창을 열 수 없습니다');
+  }
+}
+
+function closeHostCameraWindow() {
+  if (hostCameraWindow && !hostCameraWindow.closed) {
+    hostCameraWindow.close();
+    hostCameraWindow = null;
+    log('[Host] 호스트 카메라 별도 창 닫음');
+  }
+}
+
+// 별도 창 닫기 메시지 수신
+window.addEventListener('message', (e) => {
+  if (e.data && e.data.type === 'cameraWindowClosed') {
+    hostCameraWindow = null;
+    log('[Host] 카메라 별도 창이 닫혔습니다 (메시지 수신)');
+  }
+});
+
 async function buildLocalStreamForCurrentMode(){
   try {
     if (comm==='broadcast'){
@@ -923,7 +1124,7 @@ async function buildLocalStreamForCurrentMode(){
       }
       const amplified = await makeAmplifiedStreamFrom(raw, sourceMode==='screen');
       
-      // 화면공유 모드일 때 카메라 스트림도 추가 (PiP용)
+      // 화면공유 모드일 때 카메라 스트림도 추가 (별도 창용)
       if (sourceMode === 'screen') {
         try {
           const cameraStream = await getCameraStream();
@@ -931,12 +1132,15 @@ async function buildLocalStreamForCurrentMode(){
           if (cameraTrack) {
             // 카메라 트랙을 amplified 스트림에 추가
             amplified.addTrack(cameraTrack);
-            // 호스트 카메라 스트림 저장 (PiP용)
+            // 호스트 카메라 스트림 저장 (별도 창용)
             hostCameraStream = new MediaStream([cameraTrack]);
             log('[Host] 화면공유와 함께 카메라 스트림 추가됨');
+            
+            // 별도 창에 카메라 표시
+            openHostCameraWindow(hostCameraStream);
           }
         } catch(e) {
-          console.warn('[Host] 카메라 스트림 획득 실패 (PiP용):', e);
+          console.warn('[Host] 카메라 스트림 획득 실패 (별도 창용):', e);
           // 카메라 실패해도 화면공유는 계속 진행
         }
       }
@@ -1054,9 +1258,12 @@ async function startScreenShare(){
     if (oldVideoTrack && role === 'host') {
       // 방송 모드: 기존 카메라 트랙을 유지하고 화면공유 트랙 추가
       if (comm === 'broadcast' && sourceMode === 'camera') {
-        // 기존 카메라 트랙을 PiP용으로 유지
+        // 기존 카메라 트랙을 별도 창용으로 유지
         cameraTrackForPip = oldVideoTrack;
         hostCameraStream = new MediaStream([cameraTrackForPip]);
+        
+        // 별도 창에 카메라 표시
+        openHostCameraWindow(hostCameraStream);
         
         // 화면공유 트랙 추가 (카메라 트랙과 함께)
         localStream.addTrack(screenTrack);
@@ -1091,21 +1298,38 @@ async function startScreenShare(){
             log(`[Host] 화면공유 트랙 추가 실패 (${vid}): ` + e.message);
           }
         });
-      } else {
+        } else {
         // 미팅 모드: 기존 트랙을 화면공유로 교체하고 카메라는 새로 획득
-        try {
-          const cameraStream = await getCameraStream();
-          cameraTrackForPip = cameraStream.getVideoTracks()[0];
-          if (cameraTrackForPip) {
-            hostCameraStream = new MediaStream([cameraTrackForPip]);
-            // PiP 표시
-            showHostCameraPip = true;
-            pipVideo.srcObject = hostCameraStream;
-            pipOverlay.classList.add('show');
-            pipVideo.play().catch(e => {});
+        // 미팅 모드는 PiP 사용, 방송 모드는 별도 창 사용
+        if (comm === 'broadcast') {
+          // 방송 모드: 별도 창 사용
+          try {
+            const cameraStream = await getCameraStream();
+            cameraTrackForPip = cameraStream.getVideoTracks()[0];
+            if (cameraTrackForPip) {
+              hostCameraStream = new MediaStream([cameraTrackForPip]);
+              // 별도 창에 카메라 표시
+              openHostCameraWindow(hostCameraStream);
+            }
+          } catch(e) {
+            console.warn('[Screen] 카메라 스트림 획득 실패 (별도 창용):', e);
           }
-        } catch(e) {
-          console.warn('[Screen] 카메라 스트림 획득 실패 (PiP용):', e);
+        } else {
+          // 미팅 모드: PiP 사용
+          try {
+            const cameraStream = await getCameraStream();
+            cameraTrackForPip = cameraStream.getVideoTracks()[0];
+            if (cameraTrackForPip) {
+              hostCameraStream = new MediaStream([cameraTrackForPip]);
+              // PiP 표시
+              showHostCameraPip = true;
+              pipVideo.srcObject = hostCameraStream;
+              pipOverlay.classList.add('show');
+              pipVideo.play().catch(e => {});
+            }
+          } catch(e) {
+            console.warn('[Screen] 카메라 스트림 획득 실패 (PiP용):', e);
+          }
         }
         
         // 기존 트랙 제거
@@ -1198,6 +1422,9 @@ async function stopScreenShare(){
       });
       screenShareStream = null;
     }
+    
+    // 호스트 카메라 별도 창 닫기
+    closeHostCameraWindow();
     
     // PiP 정리
     if (hostCameraStream) {
@@ -2200,6 +2427,9 @@ async function cleanup(){
     shareScreenBtn.textContent = '화면공유 시작';
     shareScreenBtn.style.background = '';
   }
+  
+  // 호스트 카메라 별도 창 닫기
+  closeHostCameraWindow();
   
   // PiP 정리
   if (hostCameraStream) {
