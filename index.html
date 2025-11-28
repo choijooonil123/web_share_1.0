@@ -64,7 +64,7 @@
 </head>
 <body>
 <header>
-  <h1>승인제 WebRTC (방송/미팅-1.5)</h1>
+  <h1>승인제 WebRTC (방송/미팅-1.6)</h1>
   <div class="row">
     <span class="tag">P2P</span>
     <span class="tag">Firebase RTDB</span>
@@ -348,13 +348,20 @@ function refreshUIByMode(){
   if (isMeeting){
     player.classList.add('hidden');
     meetingVideos.classList.remove('hidden');
-    cameraCtrl.style.display = 'flex'; // 미팅은 기본적으로 카메라/마이크 컨트롤 노출
-    shareScreenBtn.style.display = 'inline-block'; // 미팅 모드에서 화면공유 버튼 표시
+    // 미팅 모드: 시작 후에는 항상 카메라/마이크 컨트롤 표시
+    cameraCtrl.style.display = isRunning ? 'flex' : 'none';
+    shareScreenBtn.style.display = isRunning ? 'inline-block' : 'none'; // 미팅 모드에서 화면공유 버튼 표시
   }else{
     meetingVideos.classList.add('hidden');
     player.classList.remove('hidden');
-    cameraCtrl.style.display = (isHost && sourceMode==='camera') ? 'flex' : 'none';
-    shareScreenBtn.style.display = 'none';
+    // 방송 모드: 호스트는 카메라 모드일 때 또는 시작 후, 게스트는 시작 후 버튼 표시
+    if (isHost) {
+      cameraCtrl.style.display = (sourceMode==='camera' || isRunning) ? 'flex' : 'none';
+    } else {
+      // 방송 모드 게스트는 수신만 하므로 버튼 불필요하지만, 사용자 요청에 따라 시작 후 표시
+      cameraCtrl.style.display = isRunning ? 'flex' : 'none';
+    }
+    shareScreenBtn.style.display = isRunning && !isHost ? 'inline-block' : 'none'; // 방송 모드 게스트는 화면공유 불가
   }
   if (!isMeeting && role==='guest' && isiOS) showIOSUnmuteOverlayIfNeeded();
 }
@@ -974,6 +981,16 @@ async function stopScreenShare(){
 
 /* ---------------- Signaling: Host / Guest ---------------- */
 function addPending(vid, data){
+  // 이미 pending 목록에 있거나 이미 연결된 게스트는 무시
+  if (document.getElementById(`pending-${vid}`)) {
+    log(`[Host] ${vid}는 이미 승인 대기 중입니다`);
+    return;
+  }
+  if (peerConnections.has(vid)) {
+    log(`[Host] ${vid}는 이미 연결되어 있습니다`);
+    return;
+  }
+  
   const li = document.createElement('li');
   li.id = `pending-${vid}`;
   li.innerHTML = `
@@ -1063,11 +1080,35 @@ async function startHost(){
     offersRef.on('child_added', async snap=>{
       const vid = snap.key; const data = snap.val();
       if(!data || !data.sdp) return;
-      addPending(vid, data);
-      log('[Host] offer arrived from: ' + vid);
+      
+      // 이미 답변이 있는 게스트(이미 승인된 게스트)는 pending 목록에 추가하지 않음
+      const answerRef = db.ref(`rooms/${roomId}/answers/${vid}`);
+      answerRef.once('value', (answerSnap) => {
+        try {
+          if (answerSnap.exists()) {
+            log(`[Host] ${vid}는 이미 승인되어 있습니다.`);
+            return;
+          }
+          // 답변이 없는 경우에만 pending 목록에 추가
+          addPending(vid, data);
+          log('[Host] offer arrived from: ' + vid);
+        } catch(e) {
+          console.error('[Host] answerRef.once error:', e);
+          // 에러 발생 시에도 pending 목록에 추가 시도 (안전장치)
+          addPending(vid, data);
+        }
+      }).catch((e) => {
+        console.error('[Host] answerRef.once failed:', e);
+        // 에러 발생 시에도 pending 목록에 추가 시도 (안전장치)
+        addPending(vid, data);
+      });
     });
 
     startBtn.disabled = true; stopBtn.disabled = false; isRunning=true;
+    
+    // 시작 후 UI 업데이트 (버튼 표시 등)
+    refreshUIByMode();
+    
     logStatus(`호스트 대기/송출 중… 방 코드: ${roomId} · 모드: ${comm}`);
     toast('게스트에게 방 코드를 공유하세요');
     
@@ -1225,9 +1266,10 @@ async function acceptGuest(vid, data, li){
     await _pc.setLocalDescription(answer);
     await db.ref(`rooms/${roomId}/answers/${vid}`).set({ sdp: answer.sdp, ts: Date.now() });
 
-    const mutedEl = li.querySelector('.muted');
-    if (mutedEl) mutedEl.textContent = '연결 진행 중…';
-    li.style.opacity = .7;
+    // 승인 대기 목록에서 제거
+    if (li && li.parentNode) {
+      li.remove();
+    }
     log('[Host] answered to ' + vid);
   }catch(e){ 
     log('[Host] 게스트 승인 실패: ' + e.message);
@@ -1261,6 +1303,11 @@ async function acceptGuest(vid, data, li){
       peerConnections.delete(vid);
     }
     removeRemoteVideoElement(vid);
+    
+    // 에러 발생 시에도 pending 목록에서 제거
+    if (li && li.parentNode) {
+      li.remove();
+    }
     
     // Firebase 데이터 정리
     db.ref(`rooms/${roomId}/answers/${vid}`).remove().catch(() => {});
@@ -1297,6 +1344,10 @@ async function startGuest(){
   pc.ontrack = (ev)=>{
     const stream = ev.streams[0];
     if (comm==='broadcast'){
+      // 방송 모드: player가 표시되어야 함
+      player.classList.remove('hidden');
+      meetingVideos.classList.add('hidden');
+      
       if (player.srcObject !== stream){
         player.srcObject = stream;
         
@@ -1357,6 +1408,10 @@ async function startGuest(){
   });
 
     startBtn.disabled = true; stopBtn.disabled = false; isRunning=true;
+    
+    // 시작 후 UI 업데이트 (버튼 표시 등)
+    refreshUIByMode();
+    
     logStatus(`접속 요청 완료. 호스트 승인 대기… (내 ID: ${viewerId})`);
     
     // 채팅 초기화
@@ -1437,6 +1492,8 @@ async function cleanup(){
           _pc.close();
           // Firebase 데이터 정리
           db.ref(`rooms/${roomId}/candidates/${vid}`).remove().catch(e => {});
+          db.ref(`rooms/${roomId}/offers/${vid}`).remove().catch(e => {});
+          db.ref(`rooms/${roomId}/answers/${vid}`).remove().catch(e => {});
         } catch(e) {}
       });
       peerConnections.clear();
@@ -1469,6 +1526,7 @@ async function cleanup(){
   chatInput.value = '';
   myUserId = '';
   viewerId = '';  // 게스트 ID 리셋
+  roomId = '';  // 방 코드 리셋
   if (infoEl) infoEl.textContent = '-';  // 연결 정보 초기화
   
   // 화면공유 정리
