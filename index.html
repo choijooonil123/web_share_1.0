@@ -64,7 +64,7 @@
 </head>
 <body>
 <header>
-  <h1>승인제 WebRTC (방송/미팅-1.7)</h1>
+  <h1>승인제 WebRTC (방송/미팅-1.8)</h1>
   <div class="row">
     <span class="tag">P2P</span>
     <span class="tag">Firebase RTDB</span>
@@ -104,6 +104,14 @@
     <div id="fullscreenVideo" class="fullscreen-video">
       <button class="fs-close" id="fsCloseBtn">×</button>
       <video id="fsVideo" autoplay playsinline webkit-playsinline controls></video>
+      <!-- 전체화면 모드용 PiP 오버레이 -->
+      <div id="fullscreenPipOverlay" class="pip-overlay" style="position:absolute;top:20px;right:20px;z-index:2002;">
+        <div class="pip-header">
+          <span class="pip-title">호스트 카메라</span>
+          <button class="pip-close" id="fullscreenPipCloseBtn">×</button>
+        </div>
+        <video id="fullscreenPipVideo" autoplay playsinline webkit-playsinline muted></video>
+      </div>
     </div>
 
     <audio id="audiomirror" autoplay playsinline webkit-playsinline style="display:none"></audio>
@@ -268,6 +276,9 @@ const pipCloseBtn = document.getElementById('pipCloseBtn');
 const fullscreenVideo = document.getElementById('fullscreenVideo');
 const fsVideo = document.getElementById('fsVideo');
 const fsCloseBtn = document.getElementById('fsCloseBtn');
+const fullscreenPipOverlay = document.getElementById('fullscreenPipOverlay');
+const fullscreenPipVideo = document.getElementById('fullscreenPipVideo');
+const fullscreenPipCloseBtn = document.getElementById('fullscreenPipCloseBtn');
 
 /* ---------------- State ---------------- */
 let role = 'host';                 // 'host' | 'guest'
@@ -645,6 +656,10 @@ fsCloseBtn.addEventListener('click', () => {
     fullscreenVideo.classList.remove('show');
     fsVideo.srcObject = null;
     fsVideo.pause();
+    // 전체화면 PiP도 닫기
+    if (fullscreenPipOverlay) {
+      fullscreenPipOverlay.classList.remove('show');
+    }
   } catch(e) {
     console.error('Fullscreen close error:', e);
   }
@@ -656,6 +671,20 @@ document.addEventListener('keydown', (e) => {
     fsCloseBtn.click();
   }
 });
+
+// 전체화면 PiP 닫기 버튼
+if (fullscreenPipCloseBtn) {
+  fullscreenPipCloseBtn.addEventListener('click', () => {
+    try {
+      if (fullscreenPipOverlay) {
+        fullscreenPipOverlay.classList.remove('show');
+      }
+      // 트랙은 유지하고 PiP만 닫기
+    } catch(e) {
+      console.error('Fullscreen PiP close error:', e);
+    }
+  });
+}
 
 /* ---------------- Media Builders ---------------- */
 async function getCameraStream(){
@@ -1191,6 +1220,19 @@ function createRemoteVideoElement(vid, label=''){
       fsVideo.play().catch(e => {
         console.warn('Fullscreen video play failed:', e);
       });
+      
+      // 전체화면이 열릴 때 카메라 PiP도 표시 (방송 모드에서 카메라 트랙이 있는 경우)
+      if (comm === 'broadcast' && broadcastCameraTrack && fullscreenPipVideo && fullscreenPipOverlay) {
+        // 카메라 스트림이 이미 설정되어 있으면 표시
+        if (!fullscreenPipVideo.srcObject) {
+          const cameraStream = new MediaStream([broadcastCameraTrack]);
+          fullscreenPipVideo.srcObject = cameraStream;
+        }
+        fullscreenPipOverlay.classList.add('show');
+        fullscreenPipVideo.play().catch(e => {
+          console.warn('Fullscreen PiP video play failed:', e);
+        });
+      }
     } catch(e) {
       console.error('Fullscreen error:', e);
       toast('전체화면을 열 수 없습니다');
@@ -1445,8 +1487,21 @@ async function startGuest(){
           // 카메라 트랙 (PiP) - 화면공유 트랙이 이미 수신된 후
           broadcastCameraTrack = track;
           const cameraStream = new MediaStream([track]);
+          
+          // 일반 PiP 설정
           pipVideo.srcObject = cameraStream;
           pipOverlay.classList.add('show');
+          
+          // 전체화면 PiP도 설정
+          if (fullscreenPipVideo) {
+            // 같은 트랙을 사용하는 새 스트림 생성
+            const fullscreenCameraStream = new MediaStream([track]);
+            fullscreenPipVideo.srcObject = fullscreenCameraStream;
+            // 전체화면이 열려있으면 전체화면 PiP도 표시
+            if (fullscreenVideo.classList.contains('show')) {
+              fullscreenPipOverlay.classList.add('show');
+            }
+          }
           
           // PiP 비디오 재생 시도 (재시도 포함)
           const playPipVideo = async () => {
@@ -1455,6 +1510,15 @@ async function startGuest(){
               pipVideo.setAttribute('webkit-playsinline', '');
               pipVideo.muted = true; // 자동재생을 위해 음소거
               await pipVideo.play();
+              
+              // 전체화면 PiP도 재생
+              if (fullscreenPipVideo && fullscreenPipVideo.srcObject) {
+                fullscreenPipVideo.setAttribute('playsinline', '');
+                fullscreenPipVideo.setAttribute('webkit-playsinline', '');
+                fullscreenPipVideo.muted = true;
+                await fullscreenPipVideo.play();
+              }
+              
               log('[Guest] 호스트 카메라 PiP 표시 및 재생 성공');
             } catch(e) {
               console.warn('PiP video play failed:', e);
@@ -1466,6 +1530,11 @@ async function startGuest(){
                     console.warn('PiP video play retry failed:', e2);
                   });
                 }
+                if (fullscreenPipVideo && fullscreenPipVideo.srcObject) {
+                  fullscreenPipVideo.play().catch(e2 => {
+                    console.warn('Fullscreen PiP video play retry failed:', e2);
+                  });
+                }
               }, 500);
             }
           };
@@ -1475,6 +1544,10 @@ async function startGuest(){
           track.onended = () => {
             pipOverlay.classList.remove('show');
             pipVideo.srcObject = null;
+            if (fullscreenPipOverlay) {
+              fullscreenPipOverlay.classList.remove('show');
+              if (fullscreenPipVideo) fullscreenPipVideo.srcObject = null;
+            }
             broadcastCameraTrack = null;
             log('[Guest] 호스트 카메라 종료, PiP 닫힘');
           };
@@ -1499,8 +1572,21 @@ async function startGuest(){
           // 두 번째 비디오 트랙은 카메라로 처리
           broadcastCameraTrack = track;
           const cameraStream = new MediaStream([track]);
+          
+          // 일반 PiP 설정
           pipVideo.srcObject = cameraStream;
           pipOverlay.classList.add('show');
+          
+          // 전체화면 PiP도 설정
+          if (fullscreenPipVideo) {
+            // 같은 트랙을 사용하는 새 스트림 생성
+            const fullscreenCameraStream = new MediaStream([track]);
+            fullscreenPipVideo.srcObject = fullscreenCameraStream;
+            // 전체화면이 열려있으면 전체화면 PiP도 표시
+            if (fullscreenVideo.classList.contains('show')) {
+              fullscreenPipOverlay.classList.add('show');
+            }
+          }
           
           // PiP 비디오 재생 시도 (재시도 포함)
           const playPipVideo = async () => {
@@ -1509,6 +1595,15 @@ async function startGuest(){
               pipVideo.setAttribute('webkit-playsinline', '');
               pipVideo.muted = true; // 자동재생을 위해 음소거
               await pipVideo.play();
+              
+              // 전체화면 PiP도 재생
+              if (fullscreenPipVideo && fullscreenPipVideo.srcObject) {
+                fullscreenPipVideo.setAttribute('playsinline', '');
+                fullscreenPipVideo.setAttribute('webkit-playsinline', '');
+                fullscreenPipVideo.muted = true;
+                await fullscreenPipVideo.play();
+              }
+              
               log('[Guest] 두 번째 비디오 스트림 수신 (호스트 카메라 PiP 표시, label: ' + track.label + ')');
             } catch(e) {
               console.warn('PiP video play failed:', e);
@@ -1520,6 +1615,11 @@ async function startGuest(){
                     console.warn('PiP video play retry failed:', e2);
                   });
                 }
+                if (fullscreenPipVideo && fullscreenPipVideo.srcObject) {
+                  fullscreenPipVideo.play().catch(e2 => {
+                    console.warn('Fullscreen PiP video play retry failed:', e2);
+                  });
+                }
               }, 500);
             }
           };
@@ -1528,6 +1628,10 @@ async function startGuest(){
           track.onended = () => {
             pipOverlay.classList.remove('show');
             pipVideo.srcObject = null;
+            if (fullscreenPipOverlay) {
+              fullscreenPipOverlay.classList.remove('show');
+              if (fullscreenPipVideo) fullscreenPipVideo.srcObject = null;
+            }
             broadcastCameraTrack = null;
             log('[Guest] 호스트 카메라 종료, PiP 닫힘');
           };
@@ -1747,6 +1851,10 @@ async function cleanup(){
   // 전체화면 정리
   fullscreenVideo.classList.remove('show');
   fsVideo.srcObject = null;
+  if (fullscreenPipOverlay) {
+    fullscreenPipOverlay.classList.remove('show');
+    if (fullscreenPipVideo) fullscreenPipVideo.srcObject = null;
+  }
   
   // Audio Context 정리
   if (audioCtx && audioCtx.state !== 'closed') {
