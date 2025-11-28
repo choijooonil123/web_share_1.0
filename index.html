@@ -32,7 +32,7 @@
     .remote-video-wrapper{position:relative;min-height:100px}
     .remote-video-wrapper small{position:absolute;top:4px;left:4px;background:rgba(0,0,0,.6);padding:3px 6px;border-radius:4px;z-index:1;font-size:11px}
     .remote-video-wrapper video{width:100%;height:auto;min-height:100px;background:#000;border-radius:8px;object-fit:cover}
-    .local-preview-wrapper{position:relative;display:block;margin-top:10px}
+    .local-preview-wrapper{position:relative;display:none;margin-top:10px}
     .local-preview-wrapper.show{display:block}
     #toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#0d1433;border:1px solid #2a3a77;color:#eaf0ff;padding:10px 14px;border-radius:12px;display:none}
     .hidden{display:none!important}
@@ -64,7 +64,7 @@
 </head>
 <body>
 <header>
-  <h1>승인제 WebRTC (방송/미팅-1.6)</h1>
+  <h1>승인제 WebRTC (방송/미팅-1.2)</h1>
   <div class="row">
     <span class="tag">P2P</span>
     <span class="tag">Firebase RTDB</span>
@@ -287,6 +287,9 @@ let isScreenSharing = false;       // 화면공유 중 여부
 let screenShareStream = null;       // 화면공유 스트림 (종료 감지용)
 let hostCameraStream = null;        // 호스트 카메라 스트림 (PiP용)
 let showHostCameraPip = false;      // 호스트 카메라 PiP 표시 여부
+let broadcastVideoTracks = [];     // 방송 모드 게스트가 받은 비디오 트랙 추적
+let broadcastScreenTrack = null;   // 방송 모드 게스트가 받은 화면공유 트랙
+let broadcastCameraTrack = null;   // 방송 모드 게스트가 받은 카메라 트랙
 let firebaseListeners = {           // Firebase 리스너 정리를 위한 참조
   offers: null,
   answers: null,
@@ -617,12 +620,18 @@ pipCloseBtn.addEventListener('click', () => {
   try {
     showHostCameraPip = false;
     pipOverlay.classList.remove('show');
+    // 호스트인 경우 (미팅 모드)
     if (hostCameraStream) {
       hostCameraStream.getTracks().forEach(t => {
         t.onended = null;
         t.stop();
       });
       hostCameraStream = null;
+    }
+    // 게스트인 경우 (방송 모드) - 트랙은 중지하지 않고 PiP만 닫기
+    if (broadcastCameraTrack && comm === 'broadcast') {
+      // 트랙은 유지하고 PiP만 닫기
+      broadcastCameraTrack = null;
     }
     pipVideo.srcObject = null;
   } catch(e) {
@@ -722,6 +731,25 @@ async function buildLocalStreamForCurrentMode(){
         throw new Error('미디어 스트림을 획득할 수 없습니다');
       }
       const amplified = await makeAmplifiedStreamFrom(raw, sourceMode==='screen');
+      
+      // 화면공유 모드일 때 카메라 스트림도 추가 (PiP용)
+      if (sourceMode === 'screen') {
+        try {
+          const cameraStream = await getCameraStream();
+          const cameraTrack = cameraStream.getVideoTracks()[0];
+          if (cameraTrack) {
+            // 카메라 트랙을 amplified 스트림에 추가
+            amplified.addTrack(cameraTrack);
+            // 호스트 카메라 스트림 저장 (PiP용)
+            hostCameraStream = new MediaStream([cameraTrack]);
+            log('[Host] 화면공유와 함께 카메라 스트림 추가됨');
+          }
+        } catch(e) {
+          console.warn('[Host] 카메라 스트림 획득 실패 (PiP용):', e);
+          // 카메라 실패해도 화면공유는 계속 진행
+        }
+      }
+      
       return amplified;
     }else{ // meeting
       const cam = await getCameraStream();
@@ -1324,7 +1352,8 @@ async function startGuest(){
 
     // 트랜시버/로컬 트랙 구성
     if (comm==='broadcast'){
-      // 수신 전용
+      // 수신 전용 (화면공유 + 카메라 두 개의 비디오 트랙을 받기 위해 두 개의 트랜시버 생성)
+      pc.addTransceiver('video', { direction:'recvonly' });
       pc.addTransceiver('video', { direction:'recvonly' });
       pc.addTransceiver('audio', { direction:'recvonly' });
     }else{
@@ -1341,23 +1370,114 @@ async function startGuest(){
       localStream.getTracks().forEach(t=>pc.addTrack(t, localStream));
     }
 
+  // 방송 모드에서 비디오 트랙 추적 초기화
+  broadcastVideoTracks = [];
+  broadcastScreenTrack = null;
+  broadcastCameraTrack = null;
+  
   pc.ontrack = (ev)=>{
     const stream = ev.streams[0];
+    const track = ev.track;
+    
     if (comm==='broadcast'){
       // 방송 모드: player가 표시되어야 함
       player.classList.remove('hidden');
       meetingVideos.classList.add('hidden');
       
-      if (player.srcObject !== stream){
-        player.srcObject = stream;
+      // 비디오 트랙인 경우 추적
+      if (track.kind === 'video') {
+        // 트랙 label로 화면공유와 카메라 구분
+        const trackLabel = track.label.toLowerCase();
+        const isScreenTrack = trackLabel.includes('screen') || 
+                              trackLabel.includes('화면') ||
+                              trackLabel.includes('display') ||
+                              trackLabel.includes('monitor');
         
-        (async ()=>{ try{ 
-          player.setAttribute('playsinline',''); 
-          player.setAttribute('webkit-playsinline',''); 
-          await player.play(); 
-        }catch(e){} })();
-        audioMirror.srcObject = stream;
+        if (isScreenTrack && !broadcastScreenTrack) {
+          // 화면공유 트랙 (메인 플레이어)
+          broadcastScreenTrack = track;
+          const mainStream = new MediaStream([track]);
+          if (player.srcObject !== mainStream) {
+            player.srcObject = mainStream;
+            (async ()=>{ try{ 
+              player.setAttribute('playsinline',''); 
+              player.setAttribute('webkit-playsinline',''); 
+              await player.play(); 
+            }catch(e){} })();
+          }
+          // 오디오 트랙도 함께 처리
+          const audioTracks = stream.getAudioTracks();
+          if (audioTracks.length > 0) {
+            audioMirror.srcObject = stream;
+          }
+          log('[Guest] 화면공유 스트림 수신');
+        } else if (!isScreenTrack && !broadcastCameraTrack) {
+          // 카메라 트랙 (PiP)
+          broadcastCameraTrack = track;
+          const cameraStream = new MediaStream([track]);
+          pipVideo.srcObject = cameraStream;
+          pipOverlay.classList.add('show');
+          pipVideo.play().catch(e => {
+            console.warn('PiP video play failed:', e);
+          });
+          log('[Guest] 호스트 카메라 PiP 표시');
+          
+          // 트랙 종료 시 PiP 닫기
+          track.onended = () => {
+            pipOverlay.classList.remove('show');
+            pipVideo.srcObject = null;
+            broadcastCameraTrack = null;
+            log('[Guest] 호스트 카메라 종료, PiP 닫힘');
+          };
+        } else if (!broadcastScreenTrack && !broadcastCameraTrack) {
+          // label로 구분이 안 되는 경우 순서 기반 처리 (첫 번째는 화면공유로 가정)
+          broadcastScreenTrack = track;
+          const mainStream = new MediaStream([track]);
+          if (player.srcObject !== mainStream) {
+            player.srcObject = mainStream;
+            (async ()=>{ try{ 
+              player.setAttribute('playsinline',''); 
+              player.setAttribute('webkit-playsinline',''); 
+              await player.play(); 
+            }catch(e){} })();
+          }
+          const audioTracks = stream.getAudioTracks();
+          if (audioTracks.length > 0) {
+            audioMirror.srcObject = stream;
+          }
+          log('[Guest] 첫 번째 비디오 스트림 수신 (화면공유로 가정)');
+        } else if (!broadcastCameraTrack && broadcastScreenTrack) {
+          // 두 번째 비디오 트랙은 카메라로 처리
+          broadcastCameraTrack = track;
+          const cameraStream = new MediaStream([track]);
+          pipVideo.srcObject = cameraStream;
+          pipOverlay.classList.add('show');
+          pipVideo.play().catch(e => {
+            console.warn('PiP video play failed:', e);
+          });
+          log('[Guest] 두 번째 비디오 스트림 수신 (호스트 카메라 PiP 표시)');
+          
+          track.onended = () => {
+            pipOverlay.classList.remove('show');
+            pipVideo.srcObject = null;
+            broadcastCameraTrack = null;
+            log('[Guest] 호스트 카메라 종료, PiP 닫힘');
+          };
+        }
+      } else if (track.kind === 'audio') {
+        // 오디오 트랙 처리
+        if (player.srcObject) {
+          // 기존 스트림에 오디오 트랙 추가
+          const currentStream = player.srcObject;
+          if (!currentStream.getAudioTracks().length) {
+            currentStream.addTrack(track);
+            audioMirror.srcObject = currentStream;
+          }
+        } else {
+          audioMirror.srcObject = stream;
+        }
       }
+      
       if (isiOS) showIOSUnmuteOverlayIfNeeded(); else unmuteBtn.style.display='inline-block';
     }else{
       // 미팅 모드: 호스트의 스트림을 표시
@@ -1548,6 +1668,11 @@ async function cleanup(){
   showHostCameraPip = false;
   pipOverlay.classList.remove('show');
   pipVideo.srcObject = null;
+  
+  // 방송 모드 비디오 트랙 추적 초기화
+  broadcastVideoTracks = [];
+  broadcastScreenTrack = null;
+  broadcastCameraTrack = null;
   
   // 전체화면 정리
   fullscreenVideo.classList.remove('show');
