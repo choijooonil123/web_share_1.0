@@ -36,7 +36,7 @@
     .local-preview-wrapper.show{display:block}
     #toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#0d1433;border:1px solid #2a3a77;color:#eaf0ff;padding:10px 14px;border-radius:12px;display:none}
     .hidden{display:none!important}
-    .pip-overlay{position:fixed;top:20px;right:20px;width:240px;height:180px;min-width:120px;min-height:90px;z-index:1000;background:rgba(16,24,58,.95);border:2px solid #22306b;border-radius:12px;padding:8px;box-shadow:0 8px 30px rgba(0,0,0,.5);display:none;user-select:none;box-sizing:border-box}
+    .pip-overlay{position:absolute;top:20px;right:20px;width:240px;height:180px;min-width:120px;min-height:90px;z-index:1000;background:rgba(16,24,58,.95);border:2px solid #22306b;border-radius:12px;padding:8px;box-shadow:0 8px 30px rgba(0,0,0,.5);display:none;user-select:none;box-sizing:border-box}
     .pip-overlay.show{display:block}
     .pip-overlay video{width:100%;height:calc(100% - 30px);border-radius:8px;background:#000;pointer-events:none;object-fit:contain;display:block}
     .pip-overlay .pip-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;cursor:move}
@@ -702,6 +702,13 @@ function makePipDraggableAndResizable(pipElement) {
   const header = pipElement.querySelector('.pip-header');
   const resizeHandle = pipElement.querySelector('.pip-resize-handle');
   
+  // 전체화면 PiP는 absolute 위치 유지, 일반 PiP는 absolute로 변경하여 스크롤 가능
+  const isFullscreenPip = pipElement.id === 'fullscreenPipOverlay';
+  if (!isFullscreenPip) {
+    // 일반 PiP는 absolute로 설정하여 스크롤 가능한 영역까지 이동 가능
+    pipElement.style.position = 'absolute';
+  }
+  
   // 드래그 시작 (헤더 클릭)
   if (header) {
     header.addEventListener('mousedown', (e) => {
@@ -710,8 +717,12 @@ function makePipDraggableAndResizable(pipElement) {
       startX = e.clientX;
       startY = e.clientY;
       const rect = pipElement.getBoundingClientRect();
-      startLeft = rect.left;
-      startTop = rect.top;
+      const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
+      const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+      // body 기준 절대 위치 계산
+      const bodyRect = document.body.getBoundingClientRect();
+      startLeft = rect.left - bodyRect.left + scrollLeft;
+      startTop = rect.top - bodyRect.top + scrollTop;
       pipElement.style.cursor = 'move';
       e.preventDefault();
     });
@@ -724,8 +735,12 @@ function makePipDraggableAndResizable(pipElement) {
       startX = touch.clientX;
       startY = touch.clientY;
       const rect = pipElement.getBoundingClientRect();
-      startLeft = rect.left;
-      startTop = rect.top;
+      const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
+      const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+      // body 기준 절대 위치 계산
+      const bodyRect = document.body.getBoundingClientRect();
+      startLeft = rect.left - bodyRect.left + scrollLeft;
+      startTop = rect.top - bodyRect.top + scrollTop;
       e.preventDefault();
     });
   }
@@ -761,21 +776,22 @@ function makePipDraggableAndResizable(pipElement) {
     if (isDragging) {
       const deltaX = clientX - startX;
       const deltaY = clientY - startY;
+      
+      // body 기준 절대 위치 계산 (화면 경계 제한 없음)
       let newLeft = startLeft + deltaX;
       let newTop = startTop + deltaY;
       
-      // 화면 경계 체크
-      const rect = pipElement.getBoundingClientRect();
-      const maxLeft = window.innerWidth - rect.width;
-      const maxTop = window.innerHeight - rect.height;
-      
-      newLeft = Math.max(0, Math.min(newLeft, maxLeft));
-      newTop = Math.max(0, Math.min(newTop, maxTop));
+      // 화면 경계 제한 없음 - 화면 밖으로도 이동 가능
+      // 음수 값도 허용하여 화면 왼쪽/위쪽 밖으로도 이동 가능
+      // 스크롤 가능한 영역까지 확장
       
       pipElement.style.left = newLeft + 'px';
       pipElement.style.top = newTop + 'px';
       pipElement.style.right = 'auto';
       pipElement.style.bottom = 'auto';
+      if (!isFullscreenPip) {
+        pipElement.style.position = 'absolute'; // absolute로 설정하여 스크롤과 함께 이동
+      }
     } else if (isResizing) {
       const deltaX = clientX - startX;
       const deltaY = clientY - startY;
