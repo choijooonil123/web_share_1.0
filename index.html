@@ -1251,7 +1251,30 @@ async function acceptGuest(vid, data, li){
     peerConnections.set(vid, _pc);
 
     // 내 트랙 추가(방송: 호스트 트랙만 / 미팅: 호스트 카메라)
-    if (localStream) localStream.getTracks().forEach(t=>_pc.addTrack(t, localStream));
+    if (localStream) {
+      // 방송 모드에서 화면공유 + 카메라인 경우, 각 트랙을 별도 스트림으로 추가
+      if (comm === 'broadcast' && sourceMode === 'screen' && localStream.getVideoTracks().length >= 2) {
+        const videoTracks = localStream.getVideoTracks();
+        const audioTracks = localStream.getAudioTracks();
+        
+        // 첫 번째 비디오 트랙 (화면공유) - 오디오와 함께
+        const screenStream = new MediaStream([videoTracks[0]]);
+        if (audioTracks.length > 0) {
+          screenStream.addTrack(audioTracks[0]);
+        }
+        _pc.addTrack(videoTracks[0], screenStream);
+        
+        // 두 번째 비디오 트랙 (카메라) - 별도 스트림
+        if (videoTracks.length >= 2) {
+          const cameraStream = new MediaStream([videoTracks[1]]);
+          _pc.addTrack(videoTracks[1], cameraStream);
+          log(`[Host] 게스트 ${vid}에게 화면공유 및 카메라 트랙 전송 (별도 스트림)`);
+        }
+      } else {
+        // 일반적인 경우: 모든 트랙을 같은 스트림으로 추가
+        localStream.getTracks().forEach(t=>_pc.addTrack(t, localStream));
+      }
+    }
     preferH264(_pc);
 
     // remote ICE (guest)
@@ -1379,6 +1402,10 @@ async function startGuest(){
     const stream = ev.streams[0];
     const track = ev.track;
     
+    // 디버깅: 모든 트랙 수신 로그
+    log(`[Guest] 트랙 수신: kind=${track.kind}, label=${track.label}, id=${track.id}`);
+    console.log('[Guest] Track received:', { kind: track.kind, label: track.label, id: track.id, enabled: track.enabled });
+    
     if (comm==='broadcast'){
       // 방송 모드: player가 표시되어야 함
       player.classList.remove('hidden');
@@ -1391,7 +1418,10 @@ async function startGuest(){
         const isScreenTrack = trackLabel.includes('screen') || 
                               trackLabel.includes('화면') ||
                               trackLabel.includes('display') ||
-                              trackLabel.includes('monitor');
+                              trackLabel.includes('monitor') ||
+                              trackLabel.includes('window');
+        
+        log(`[Guest] 비디오 트랙 분석: label="${track.label}", isScreenTrack=${isScreenTrack}, screenTrack=${!!broadcastScreenTrack}, cameraTrack=${!!broadcastCameraTrack}`);
         
         if (isScreenTrack && !broadcastScreenTrack) {
           // 화면공유 트랙 (메인 플레이어)
@@ -1410,17 +1440,36 @@ async function startGuest(){
           if (audioTracks.length > 0) {
             audioMirror.srcObject = stream;
           }
-          log('[Guest] 화면공유 스트림 수신');
-        } else if (!isScreenTrack && !broadcastCameraTrack) {
-          // 카메라 트랙 (PiP)
+          log('[Guest] 화면공유 스트림 수신 및 표시');
+        } else if (!isScreenTrack && !broadcastCameraTrack && broadcastScreenTrack) {
+          // 카메라 트랙 (PiP) - 화면공유 트랙이 이미 수신된 후
           broadcastCameraTrack = track;
           const cameraStream = new MediaStream([track]);
           pipVideo.srcObject = cameraStream;
           pipOverlay.classList.add('show');
-          pipVideo.play().catch(e => {
-            console.warn('PiP video play failed:', e);
-          });
-          log('[Guest] 호스트 카메라 PiP 표시');
+          
+          // PiP 비디오 재생 시도 (재시도 포함)
+          const playPipVideo = async () => {
+            try {
+              pipVideo.setAttribute('playsinline', '');
+              pipVideo.setAttribute('webkit-playsinline', '');
+              pipVideo.muted = true; // 자동재생을 위해 음소거
+              await pipVideo.play();
+              log('[Guest] 호스트 카메라 PiP 표시 및 재생 성공');
+            } catch(e) {
+              console.warn('PiP video play failed:', e);
+              log('[Guest] PiP 비디오 재생 실패: ' + e.message + ' (재시도 중...)');
+              // 재시도
+              setTimeout(() => {
+                if (pipVideo.srcObject && broadcastCameraTrack) {
+                  pipVideo.play().catch(e2 => {
+                    console.warn('PiP video play retry failed:', e2);
+                  });
+                }
+              }, 500);
+            }
+          };
+          playPipVideo();
           
           // 트랙 종료 시 PiP 닫기
           track.onended = () => {
@@ -1445,17 +1494,36 @@ async function startGuest(){
           if (audioTracks.length > 0) {
             audioMirror.srcObject = stream;
           }
-          log('[Guest] 첫 번째 비디오 스트림 수신 (화면공유로 가정)');
+          log('[Guest] 첫 번째 비디오 스트림 수신 (화면공유로 가정, label: ' + track.label + ')');
         } else if (!broadcastCameraTrack && broadcastScreenTrack) {
           // 두 번째 비디오 트랙은 카메라로 처리
           broadcastCameraTrack = track;
           const cameraStream = new MediaStream([track]);
           pipVideo.srcObject = cameraStream;
           pipOverlay.classList.add('show');
-          pipVideo.play().catch(e => {
-            console.warn('PiP video play failed:', e);
-          });
-          log('[Guest] 두 번째 비디오 스트림 수신 (호스트 카메라 PiP 표시)');
+          
+          // PiP 비디오 재생 시도 (재시도 포함)
+          const playPipVideo = async () => {
+            try {
+              pipVideo.setAttribute('playsinline', '');
+              pipVideo.setAttribute('webkit-playsinline', '');
+              pipVideo.muted = true; // 자동재생을 위해 음소거
+              await pipVideo.play();
+              log('[Guest] 두 번째 비디오 스트림 수신 (호스트 카메라 PiP 표시, label: ' + track.label + ')');
+            } catch(e) {
+              console.warn('PiP video play failed:', e);
+              log('[Guest] PiP 비디오 재생 실패: ' + e.message + ' (재시도 중...)');
+              // 재시도
+              setTimeout(() => {
+                if (pipVideo.srcObject && broadcastCameraTrack) {
+                  pipVideo.play().catch(e2 => {
+                    console.warn('PiP video play retry failed:', e2);
+                  });
+                }
+              }, 500);
+            }
+          };
+          playPipVideo();
           
           track.onended = () => {
             pipOverlay.classList.remove('show');
@@ -1463,6 +1531,8 @@ async function startGuest(){
             broadcastCameraTrack = null;
             log('[Guest] 호스트 카메라 종료, PiP 닫힘');
           };
+        } else {
+          log(`[Guest] 비디오 트랙 무시됨 (이미 처리됨): label=${track.label}`);
         }
       } else if (track.kind === 'audio') {
         // 오디오 트랙 처리
