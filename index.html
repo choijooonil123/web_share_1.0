@@ -64,7 +64,7 @@
 </head>
 <body>
 <header>
-  <h1>승인제 WebRTC (방송/미팅-1.2)</h1>
+  <h1>승인제 WebRTC (방송/미팅-1.8)</h1>
   <div class="row">
     <span class="tag">P2P</span>
     <span class="tag">Firebase RTDB</span>
@@ -907,6 +907,24 @@ async function startScreenShare(){
             // 화면공유 트랙을 새 트랜시버로 추가
             const screenStream = new MediaStream([screenTrack]);
             _pc.addTrack(screenTrack, screenStream);
+            
+            // 기존 게스트 연결에도 카메라 트랙이 없으면 추가 (이미 있으면 스킵)
+            const existingSenders = _pc.getSenders();
+            const hasCameraTrack = existingSenders.some(s => {
+              const t = s.track;
+              if (!t || t.kind !== 'video') return false;
+              const label = t.label.toLowerCase();
+              return !label.includes('screen') && !label.includes('화면') && 
+                     !label.includes('display') && !label.includes('monitor') &&
+                     !label.includes('window');
+            });
+            
+            if (!hasCameraTrack && cameraTrackForPip) {
+              const cameraStream = new MediaStream([cameraTrackForPip]);
+              _pc.addTrack(cameraTrackForPip, cameraStream);
+              log(`[Host] 게스트 ${vid}에게 카메라 트랙도 추가`);
+            }
+            
             log(`[Host] 게스트 ${vid}에게 화면공유 트랙 추가 (카메라 유지)`);
           } catch(e) {
             console.warn(`[Host] 화면공유 트랙 추가 실패 (${vid}):`, e);
@@ -1356,10 +1374,10 @@ async function acceptGuest(vid, data, li){
         const track1Label = videoTracks[1].label.toLowerCase();
         const track0IsScreen = track0Label.includes('screen') || track0Label.includes('화면') || 
                                track0Label.includes('display') || track0Label.includes('monitor') ||
-                               track0Label.includes('window');
+                               track0Label.includes('window') || track0Label.includes('desktop');
         const track1IsScreen = track1Label.includes('screen') || track1Label.includes('화면') || 
                                track1Label.includes('display') || track1Label.includes('monitor') ||
-                               track1Label.includes('window');
+                               track1Label.includes('window') || track1Label.includes('desktop');
         
         let screenTrack = null;
         let cameraTrack = null;
@@ -1536,9 +1554,16 @@ async function startGuest(){
                               trackLabel.includes('화면') ||
                               trackLabel.includes('display') ||
                               trackLabel.includes('monitor') ||
-                              trackLabel.includes('window');
+                              trackLabel.includes('window') ||
+                              trackLabel.includes('desktop');
         
-        log(`[Guest] 비디오 트랙 분석: label="${track.label}", isScreenTrack=${isScreenTrack}, screenTrack=${!!broadcastScreenTrack}, cameraTrack=${!!broadcastCameraTrack}`);
+        log(`[Guest] 비디오 트랙 분석: label="${track.label}", isScreenTrack=${isScreenTrack}, screenTrack=${!!broadcastScreenTrack}, cameraTrack=${!!broadcastCameraTrack}, enabled=${track.enabled}`);
+        
+        // 트랙이 비활성화되어 있으면 무시
+        if (!track.enabled) {
+          log(`[Guest] 트랙이 비활성화되어 있음: ${track.label}`);
+          return;
+        }
         
         if (isScreenTrack && !broadcastScreenTrack) {
           // 화면공유 트랙 (메인 플레이어)
@@ -1561,9 +1586,11 @@ async function startGuest(){
           
           // 카메라 트랙이 이미 수신된 경우 PiP 표시
           if (broadcastCameraTrack) {
+            log('[Guest] 화면공유 수신 - 기존 카메라 트랙으로 PiP 표시 시작');
             const cameraStream = new MediaStream([broadcastCameraTrack]);
             pipVideo.srcObject = cameraStream;
             pipOverlay.classList.add('show');
+            log('[Guest] PiP 오버레이 표시됨');
             
             // 전체화면 PiP도 설정
             if (fullscreenPipVideo) {
@@ -1581,6 +1608,7 @@ async function startGuest(){
                 pipVideo.setAttribute('webkit-playsinline', '');
                 pipVideo.muted = true;
                 await pipVideo.play();
+                log('[Guest] PiP 비디오 재생 성공');
                 
                 if (fullscreenPipVideo && fullscreenPipVideo.srcObject) {
                   fullscreenPipVideo.setAttribute('playsinline', '');
@@ -1589,12 +1617,15 @@ async function startGuest(){
                   await fullscreenPipVideo.play();
                 }
                 
-                log('[Guest] 화면공유 수신 후 카메라 PiP 표시');
+                log('[Guest] 화면공유 수신 후 카메라 PiP 표시 완료');
               } catch(e) {
                 console.warn('PiP video play failed:', e);
+                log('[Guest] PiP 비디오 재생 실패: ' + e.message + ' (재시도 중...)');
                 setTimeout(() => {
                   if (pipVideo.srcObject && broadcastCameraTrack) {
-                    pipVideo.play().catch(e2 => {});
+                    pipVideo.play().catch(e2 => {
+                      console.warn('PiP video play retry failed:', e2);
+                    });
                   }
                   if (fullscreenPipVideo && fullscreenPipVideo.srcObject) {
                     fullscreenPipVideo.play().catch(e2 => {});
@@ -1603,13 +1634,17 @@ async function startGuest(){
               }
             };
             playPipVideo();
+          } else {
+            log('[Guest] 화면공유 수신 - 카메라 트랙이 아직 없음');
           }
         } else if (!isScreenTrack && !broadcastCameraTrack) {
           // 카메라 트랙 (PiP) - 화면공유 트랙이 있으면 PiP로, 없으면 임시 저장
           broadcastCameraTrack = track;
+          log(`[Guest] 카메라 트랙 수신: label="${track.label}", screenTrack=${!!broadcastScreenTrack}`);
           
           // 화면공유 트랙이 이미 있으면 PiP 표시, 없으면 나중에 표시
           if (broadcastScreenTrack) {
+            log('[Guest] 화면공유 트랙이 이미 있음, 카메라 PiP 표시 시작');
             const cameraStream = new MediaStream([track]);
             
             // 일반 PiP 설정
@@ -1665,7 +1700,7 @@ async function startGuest(){
             playPipVideo();
           } else {
             // 화면공유 트랙이 아직 없으면 나중에 PiP 표시하도록 대기
-            log('[Guest] 카메라 트랙 수신 (화면공유 대기 중)');
+            log('[Guest] 카메라 트랙 수신 (화면공유 대기 중) - PiP는 화면공유 수신 후 표시됨');
           }
           
           // 트랙 종료 시 PiP 닫기
