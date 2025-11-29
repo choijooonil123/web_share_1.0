@@ -1142,11 +1142,9 @@ window.addEventListener('message', (e) => {
 
 async function buildLocalStreamForCurrentMode(){
   try {
-    if (comm==='broadcast'){
-      // 미팅 모드: 카메라 스트림 사용
-      const cam = await getCameraStream();
-      return cam;
-    }
+    // 미팅 모드: 카메라 스트림 사용
+    const cam = await getCameraStream();
+    return cam;
   } catch(e) {
     log('[Stream] 로컬 스트림 생성 실패: ' + e.message);
     throw e;
@@ -1519,29 +1517,21 @@ async function startHost(){
       };
     }
 
-    // 카메라 모드일 때 hostCameraStream 설정 (새 브라우저 창 열기 버튼용)
-    if (comm === 'broadcast' && sourceMode === 'camera' && localStream) {
+    // 카메라 스트림 설정 (별도 창 열기 버튼용)
+    if (localStream) {
       const cameraTrack = localStream.getVideoTracks()[0];
       if (cameraTrack) {
         hostCameraStream = new MediaStream([cameraTrack]);
-        log('[Host] 카메라 모드: hostCameraStream 설정됨');
+        log('[Host] 카메라 스트림: hostCameraStream 설정됨');
         console.log('[Host] hostCameraStream 설정 완료', hostCameraStream);
       }
     }
     
-    if (comm==='broadcast'){
-      if (localStream) {
-        player.srcObject = localStream;
-        await forcePlay(player);
-        try{ player.muted=true; player.setAttribute('muted',''); player.setAttribute('playsinline',''); player.setAttribute('webkit-playsinline',''); await player.play(); }catch(e){}
-      }
-    }else{ // meeting
-      // 미리보기 UI (기본적으로 표시)
-      if (showLocalPreview && localStream) {
-        localPreview.srcObject = localStream;
-        await forcePlay(localPreview);
-        try{ localPreview.setAttribute('playsinline',''); localPreview.setAttribute('webkit-playsinline',''); await localPreview.play(); }catch(e){}
-      }
+    // 미리보기 UI (기본적으로 표시)
+    if (showLocalPreview && localStream) {
+      localPreview.srcObject = localStream;
+      await forcePlay(localPreview);
+      try{ localPreview.setAttribute('playsinline',''); localPreview.setAttribute('webkit-playsinline',''); await localPreview.play(); }catch(e){}
     }
 
     // 게스트 오퍼 대기
