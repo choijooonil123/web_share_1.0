@@ -67,7 +67,7 @@
 </head>
 <body>
 <header>
-  <h1>승인제 WebRTC (방송/미팅-1.5)</h1>
+  <h1>승인제 WebRTC (방송/미팅-1.2)</h1>
   <div class="row">
     <span class="tag">P2P</span>
     <span class="tag">Firebase RTDB</span>
@@ -1091,8 +1091,8 @@ function openHostCameraWindow(cameraStream) {
       log(`[Host] 디스플레이 정보: ${primaryScreenWidth}x${primaryScreenHeight}, 창 위치: ${windowLeft},${windowTop}`);
     }
     
-    // 새 창 열기 (더 큰 크기, 다른 디스플레이 위치 시도, 주소창 제거)
-    const windowFeatures = `width=${windowWidth},height=${windowHeight},left=${windowLeft},top=${windowTop},resizable=yes,scrollbars=no,menubar=no,toolbar=no,location=no,status=no`;
+    // 새 창 열기 (더 큰 크기, 다른 디스플레이 위치 시도, 주소창 완전 제거)
+    const windowFeatures = `width=${windowWidth},height=${windowHeight},left=${windowLeft},top=${windowTop},resizable=yes,scrollbars=no,menubar=no,toolbar=no,location=no,status=no,addressbar=no`;
     hostCameraWindow = window.open('', 'hostCameraWindow', windowFeatures);
     
     if (!hostCameraWindow) {
