@@ -1299,7 +1299,7 @@ async function startScreenShare(){
             log(`[Host] 화면공유 트랙 추가 실패 (${vid}): ` + e.message);
           }
         });
-        } else {
+      } else {
         // 미팅 모드: 기존 트랙을 화면공유로 교체하고 카메라는 새로 획득
         // 미팅 모드는 PiP 사용, 방송 모드는 별도 창 사용
         if (comm === 'broadcast') {
