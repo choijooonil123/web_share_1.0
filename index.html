@@ -113,7 +113,6 @@
       <button id="muteMicBtn">마이크 음소거</button>
       <button id="muteCamBtn">카메라 끄기</button>
       <button id="shareScreenBtn" style="display:none">화면공유 시작</button>
-      <button id="openCameraWindowBtn" style="display:none" title="호스트 카메라 별도 창 열기">📹 카메라 창 열기</button>
       <button id="openCameraPiPBtn" style="display:none" title="호스트 카메라 Picture-in-Picture 모드">🖼️ 카메라 PiP</button>
     </div>
     
@@ -222,7 +221,6 @@ const muteMicBtn   = document.getElementById('muteMicBtn');
 const muteCamBtn   = document.getElementById('muteCamBtn');
 const shareScreenBtn = document.getElementById('shareScreenBtn');
 const openBrowserWindowBtn = document.getElementById('openBrowserWindowBtn');
-const openCameraWindowBtn = document.getElementById('openCameraWindowBtn');
 const openCameraPiPBtn = document.getElementById('openCameraPiPBtn');
 const cameraCtrl   = document.getElementById('cameraCtrl');
 const sourceWrap   = document.getElementById('sourceWrap');
@@ -301,12 +299,6 @@ function refreshUIByMode(){
   cameraCtrl.style.display = isRunning ? 'flex' : 'none';
   shareScreenBtn.style.display = isRunning ? 'inline-block' : 'none';
   
-  // 호스트 카메라 별도 창 열기 버튼 (호스트만, 카메라 스트림이 있을 때)
-  if (isHost && openCameraWindowBtn) {
-    const hasCameraForWindow = (isRunning && hostCameraStream) || (isRunning && localStream && localStream.getVideoTracks().length > 0);
-    openCameraWindowBtn.style.display = hasCameraForWindow ? 'inline-block' : 'none';
-  }
-  
   // 호스트 카메라 PiP 버튼 (호스트만, 카메라 스트림이 있을 때, PiP 지원 브라우저)
   if (isHost && openCameraPiPBtn) {
     const hasCameraForPiP = (isRunning && hostCameraStream) || (isRunning && localStream && localStream.getVideoTracks().length > 0);
@@ -350,89 +342,79 @@ shareScreenBtn.addEventListener('click', async ()=>{
   }
 });
 
-// 호스트 카메라 별도 창 열기
-if (openCameraWindowBtn) {
-  openCameraWindowBtn.addEventListener('click', () => {
-    // hostCameraStream이 있으면 사용, 없으면 localStream에서 카메라 트랙 추출
-    let cameraStreamToUse = hostCameraStream;
-    
-    if (!cameraStreamToUse && localStream) {
+// 카메라 PiP 시작 함수
+async function startCameraPiP(cameraStreamToUse) {
+  if (!cameraStreamToUse) {
+    // hostCameraStream이 없으면 localStream에서 카메라 트랙 추출
+    if (localStream) {
       const videoTrack = localStream.getVideoTracks()[0];
       if (videoTrack) {
         cameraStreamToUse = new MediaStream([videoTrack]);
       }
     }
-    
-    if (!cameraStreamToUse) {
-      toast('카메라 스트림이 없습니다');
-      console.warn('[Host] 카메라 스트림 없음', { hostCameraStream, localStream });
-      return;
+  }
+  
+  if (!cameraStreamToUse) {
+    console.warn('[Host] 카메라 스트림 없음', { hostCameraStream, localStream });
+    return;
+  }
+  
+  try {
+    // PiP용 비디오 엘리먼트 생성 (숨김)
+    if (!hostCameraPiPVideo) {
+      hostCameraPiPVideo = document.createElement('video');
+      hostCameraPiPVideo.style.position = 'fixed';
+      hostCameraPiPVideo.style.top = '-9999px';
+      hostCameraPiPVideo.style.width = '1px';
+      hostCameraPiPVideo.style.height = '1px';
+      hostCameraPiPVideo.autoplay = true;
+      hostCameraPiPVideo.muted = true;
+      hostCameraPiPVideo.playsInline = true;
+      document.body.appendChild(hostCameraPiPVideo);
     }
     
-    try {
-      openHostCameraWindow(cameraStreamToUse);
-      toast('호스트 카메라 별도 창이 열렸습니다');
-      log('[Host] 호스트 카메라 별도 창 열기 버튼 클릭');
-    } catch(e) {
-      console.error('호스트 카메라 창 열기 실패:', e);
-      toast('카메라 창을 열 수 없습니다');
+    // 스트림 설정
+    hostCameraPiPVideo.srcObject = cameraStreamToUse;
+    await hostCameraPiPVideo.play();
+    
+    // Picture-in-Picture 모드 진입
+    if (!document.pictureInPictureElement) {
+      await hostCameraPiPVideo.requestPictureInPicture();
+      log('[Host] Picture-in-Picture 모드 시작 (화면공유 시 자동)');
+      
+      // PiP 창을 공유 화면의 우측 상단에 배치하려고 시도
+      // 참고: 브라우저가 PiP 위치를 제어하므로 완전한 제어는 불가능하지만,
+      // 사용자가 수동으로 우측 상단으로 이동할 수 있습니다
     }
-  });
+  } catch(e) {
+    console.error('Picture-in-Picture 실패:', e);
+    log('[Host] Picture-in-Picture 실패: ' + e.message);
+  }
 }
 
-// 호스트 카메라 Picture-in-Picture 모드
+// 호스트 카메라 Picture-in-Picture 모드 (수동 버튼)
 if (openCameraPiPBtn) {
   openCameraPiPBtn.addEventListener('click', async () => {
-    // hostCameraStream이 있으면 사용, 없으면 localStream에서 카메라 트랙 추출
-    let cameraStreamToUse = hostCameraStream;
-    
-    if (!cameraStreamToUse && localStream) {
-      const videoTrack = localStream.getVideoTracks()[0];
-      if (videoTrack) {
-        cameraStreamToUse = new MediaStream([videoTrack]);
-      }
-    }
+    const cameraStreamToUse = hostCameraStream || (localStream ? new MediaStream([localStream.getVideoTracks()[0]]) : null);
     
     if (!cameraStreamToUse) {
       toast('카메라 스트림이 없습니다');
-      console.warn('[Host] 카메라 스트림 없음', { hostCameraStream, localStream });
       return;
     }
     
     try {
-      // PiP용 비디오 엘리먼트 생성 (숨김)
-      if (!hostCameraPiPVideo) {
-        hostCameraPiPVideo = document.createElement('video');
-        hostCameraPiPVideo.style.position = 'fixed';
-        hostCameraPiPVideo.style.top = '-9999px';
-        hostCameraPiPVideo.style.width = '1px';
-        hostCameraPiPVideo.style.height = '1px';
-        hostCameraPiPVideo.autoplay = true;
-        hostCameraPiPVideo.muted = true;
-        hostCameraPiPVideo.playsInline = true;
-        document.body.appendChild(hostCameraPiPVideo);
-      }
-      
-      // 스트림 설정
-      hostCameraPiPVideo.srcObject = cameraStreamToUse;
-      await hostCameraPiPVideo.play();
-      
-      // Picture-in-Picture 모드 진입
       if (document.pictureInPictureElement) {
         // 이미 PiP 모드면 종료
         await document.exitPictureInPicture();
         toast('Picture-in-Picture 모드 종료');
         log('[Host] Picture-in-Picture 모드 종료');
       } else {
-        // PiP 모드 진입
-        await hostCameraPiPVideo.requestPictureInPicture();
+        await startCameraPiP(cameraStreamToUse);
         toast('Picture-in-Picture 모드 시작');
-        log('[Host] Picture-in-Picture 모드 시작');
       }
     } catch(e) {
       console.error('Picture-in-Picture 실패:', e);
       toast('Picture-in-Picture를 사용할 수 없습니다: ' + e.message);
-      log('[Host] Picture-in-Picture 실패: ' + e.message);
     }
   });
 }
@@ -1373,8 +1355,8 @@ async function startScreenShare(){
         cameraTrackForPip = oldVideoTrack;
         hostCameraStream = new MediaStream([cameraTrackForPip]);
         
-        // 별도 창에 카메라 표시
-        openHostCameraWindow(hostCameraStream);
+        // Picture-in-Picture 모드 자동 시작
+        await startCameraPiP(hostCameraStream);
         
         // 화면공유 트랙 추가 (카메라 트랙과 함께)
         localStream.addTrack(screenTrack);
@@ -1425,11 +1407,8 @@ async function startScreenShare(){
             const sharedScreenWidth = screenSettings.width || window.screen.width;
             const sharedScreenHeight = screenSettings.height || window.screen.height;
             
-            // 호스트 카메라 창 열기 (공유되는 화면의 우측 위에 가로 1/6, 세로 1/4 크기로)
-            openHostCameraWindow(hostCameraStream, true, {
-              screenWidth: sharedScreenWidth,
-              screenHeight: sharedScreenHeight
-            });
+            // Picture-in-Picture 모드 자동 시작 (공유 화면의 우측 상단에 배치)
+            await startCameraPiP(hostCameraStream);
           }
         } catch(e) {
           console.warn('[Host] 화면공유 중 카메라 스트림 획득 실패:', e);
