@@ -44,6 +44,17 @@
     .fullscreen-video .fs-close:hover{background:rgba(255,74,74,.9)}
     .video-fullscreen-btn{position:absolute;top:8px;right:8px;background:rgba(0,0,0,.6);border:none;color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:11px;z-index:2}
     .video-fullscreen-btn:hover{background:rgba(0,0,0,.8)}
+    .video-question-btn{position:absolute;bottom:8px;right:8px;background:rgba(106,166,255,.8);border:none;color:#fff;padding:8px 12px;border-radius:8px;cursor:pointer;font-size:12px;z-index:2;font-weight:bold}
+    .video-question-btn:hover{background:rgba(106,166,255,1)}
+    .fullscreen-video .video-question-btn{position:absolute;bottom:20px;right:20px;z-index:2002}
+    .video-unmute-btn{position:absolute;bottom:8px;left:8px;background:rgba(255,106,106,.8);border:none;color:#fff;padding:8px 12px;border-radius:8px;cursor:pointer;font-size:12px;z-index:2;font-weight:bold}
+    .video-unmute-btn:hover{background:rgba(255,74,74,1)}
+    .video-unmute-btn.muted{background:rgba(100,100,100,.8)}
+    .video-unmute-btn.muted:hover{background:rgba(120,120,120,1)}
+    .video-question-allow-btn{position:absolute;top:8px;left:8px;background:rgba(76,175,80,.8);border:none;color:#fff;padding:8px 12px;border-radius:8px;cursor:pointer;font-size:12px;z-index:2;font-weight:bold}
+    .video-question-allow-btn:hover{background:rgba(69,160,73,1)}
+    .video-question-end-btn{position:absolute;top:8px;left:8px;background:rgba(244,67,54,.8);border:none;color:#fff;padding:8px 12px;border-radius:8px;cursor:pointer;font-size:12px;z-index:2;font-weight:bold}
+    .video-question-end-btn:hover{background:rgba(229,57,53,1)}
     .chat-container{display:flex;flex-direction:column;height:300px}
     .chat-messages{flex:1;overflow-y:auto;padding:8px;background:#0d1433;border-radius:8px;margin-bottom:8px;max-height:250px}
     .chat-message{padding:6px 8px;margin-bottom:6px;border-radius:6px;font-size:13px;word-wrap:break-word}
@@ -58,7 +69,7 @@
 </head>
 <body>
 <header>
-  <h1>승인제 WebRTC (방송/미팅-2.0)</h1>
+  <h1>승인제 WebRTC (방송/미팅-2.1/h1>
   <div class="row">
     <span class="tag">P2P</span>
     <span class="tag">Firebase RTDB</span>
@@ -87,6 +98,8 @@
     <div id="fullscreenVideo" class="fullscreen-video">
       <button class="fs-close" id="fsCloseBtn">×</button>
       <video id="fsVideo" autoplay playsinline webkit-playsinline controls></video>
+      <!-- 시청자 전용 질문 버튼 (전체화면 모드) -->
+      <button id="fullscreenQuestionBtn" class="video-question-btn" style="display:none">❓ 질문하기</button>
     </div>
 
     <audio id="audiomirror" autoplay playsinline webkit-playsinline style="display:none"></audio>
@@ -234,11 +247,12 @@ const togglePreviewBtn = document.getElementById('togglePreviewBtn');
 const chatMessages = document.getElementById('chatMessages');
 const chatInput = document.getElementById('chatInput');
 const chatSendBtn = document.getElementById('chatSendBtn');
-const questionBtnWrapper = document.getElementById('questionBtnWrapper');
-const questionBtn = document.getElementById('questionBtn');
 const fullscreenVideo = document.getElementById('fullscreenVideo');
 const fsVideo = document.getElementById('fsVideo');
 const fsCloseBtn = document.getElementById('fsCloseBtn');
+const fullscreenQuestionBtn = document.getElementById('fullscreenQuestionBtn');
+const questionBtnWrapper = document.getElementById('questionBtnWrapper');
+const questionBtn = document.getElementById('questionBtn');
 
 /* ---------------- State ---------------- */
 let role = 'host';                 // 'host' | 'guest'
@@ -250,6 +264,7 @@ let isRunning = false;
 let pc = null;                      // 게스트용 단일 연결
 let peerConnections = new Map();    // 호스트용: 게스트 ID -> PeerConnection
 let remoteVideos = new Map();       // 게스트 ID -> video 엘리먼트
+let guestAudioTracks = new Map();   // 게스트 ID -> 오디오 트랙 (음소거 제어용)
 let localStream = null;            // 내가 보내는 스트림(모드별 구성)
 let audioCtx = null, gainNode = null, viewerAudioCtx = null;
 let showLocalPreview = true;        // 내 미리보기 표시 여부 (기본값: 표시)
@@ -258,6 +273,8 @@ let screenShareStream = null;       // 화면공유 스트림 (종료 감지용)
 let hostCameraStream = null;        // 호스트 카메라 스트림 (별도 창용/PiP용)
 let hostCameraWindow = null;        // 호스트 카메라 별도 창
 let hostCameraPiPVideo = null;      // 호스트 카메라 PiP용 비디오 엘리먼트
+let guestQuestionPiPVideo = null;  // 게스트 질문 PiP용 비디오 엘리먼트
+let currentQuestionGuestId = null;  // 현재 질문 중인 게스트 ID
 let firebaseListeners = {           // Firebase 리스너 정리를 위한 참조
   offers: null,
   answers: null,
@@ -433,9 +450,17 @@ if (openCameraPiPBtn) {
 // PiP 종료 감지
 if (document.pictureInPictureEnabled) {
   document.addEventListener('leavepictureinpicture', () => {
-    if (hostCameraPiPVideo) {
+    // 호스트 카메라 PiP 종료 감지
+    if (hostCameraPiPVideo && document.pictureInPictureElement === hostCameraPiPVideo) {
       hostCameraPiPVideo.srcObject = null;
       log('[Host] Picture-in-Picture 모드 종료됨');
+    }
+    // 게스트 질문 PiP 종료 감지
+    if (guestQuestionPiPVideo && document.pictureInPictureElement === guestQuestionPiPVideo) {
+      if (currentQuestionGuestId) {
+        // 질문 완료 처리
+        endGuestQuestion(currentQuestionGuestId);
+      }
     }
   });
 }
@@ -618,6 +643,13 @@ function addChatMessage(senderId, senderName, message, timestamp, isOwn = false)
   msgText.style.marginTop = '2px';
   msgText.style.wordBreak = 'break-word';
   
+  // 질문 메시지는 밝은 적색으로 표시
+  if (message && message.includes('질문있음')) {
+    msgText.style.color = '#ff4444';
+    msgText.style.fontWeight = 'bold';
+    msgText.style.fontSize = '14px';
+  }
+  
   senderSpan.appendChild(timeSpan);
   msgDiv.appendChild(senderSpan);
   msgDiv.appendChild(msgText);
@@ -656,6 +688,34 @@ async function sendChatMessage(){
     log('[Chat] 전송 실패: ' + e.message);
     toast('메시지 전송 실패');
     console.error('Chat send error:', e);
+  }
+}
+
+// 질문 알림 전송 함수 (시청자 전용)
+async function sendQuestionNotification(){
+  if (!isRunning || role !== 'guest' || !roomId || !myUserId) {
+    toast('먼저 방에 참여하세요');
+    return;
+  }
+  
+  const guestName = `게스트 ${myUserId.substring(0,6)}`;
+  const questionMessage = `${guestName}가 질문있음`;
+  
+  const chatData = {
+    senderId: myUserId,
+    senderName: guestName,
+    message: questionMessage,
+    timestamp: Date.now()
+  };
+  
+  try {
+    await db.ref(`rooms/${roomId}/chat`).push(chatData);
+    toast('질문 알림이 전송되었습니다');
+    log('[Guest] 질문 알림 전송: ' + questionMessage);
+  } catch(e) {
+    log('[Chat] 질문 알림 전송 실패: ' + e.message);
+    toast('질문 알림 전송 실패');
+    console.error('Question notification error:', e);
   }
 }
 
@@ -721,6 +781,13 @@ fsCloseBtn.addEventListener('click', () => {
     console.error('Fullscreen close error:', e);
   }
 });
+
+// 전체화면 질문 버튼
+if (fullscreenQuestionBtn) {
+  fullscreenQuestionBtn.addEventListener('click', () => {
+    sendQuestionNotification();
+  });
+}
 
 // ESC 키로 전체화면 닫기
 document.addEventListener('keydown', (e) => {
@@ -1809,6 +1876,12 @@ function createRemoteVideoElement(vid, label=''){
       }
       fsVideo.srcObject = video.srcObject;
       fullscreenVideo.classList.add('show');
+      
+      // 시청자일 때만 전체화면 질문 버튼 표시
+      if (fullscreenQuestionBtn) {
+        fullscreenQuestionBtn.style.display = (role === 'guest') ? 'block' : 'none';
+      }
+      
       fsVideo.play().catch(e => {
         console.warn('Fullscreen video play failed:', e);
       });
@@ -1822,6 +1895,52 @@ function createRemoteVideoElement(vid, label=''){
   wrapper.appendChild(labelEl);
   wrapper.appendChild(video);
   wrapper.appendChild(fullscreenBtn);
+  
+  // 시청자(게스트) 전용 질문 버튼 추가
+  if (role === 'guest') {
+    const questionBtn = document.createElement('button');
+    questionBtn.className = 'video-question-btn';
+    questionBtn.textContent = '❓ 질문하기';
+    questionBtn.onclick = () => {
+      sendQuestionNotification();
+    };
+    wrapper.appendChild(questionBtn);
+  }
+  
+  // 호스트 전용 버튼 추가
+  if (role === 'host') {
+    // 질문 허락 버튼
+    const questionAllowBtn = document.createElement('button');
+    questionAllowBtn.className = 'video-question-allow-btn';
+    questionAllowBtn.textContent = '✅ 질문 허락';
+    questionAllowBtn.id = `question-allow-btn-${vid}`;
+    questionAllowBtn.onclick = () => {
+      allowGuestQuestion(vid);
+    };
+    wrapper.appendChild(questionAllowBtn);
+    
+    // 질문 완료 버튼 (초기에는 숨김)
+    const questionEndBtn = document.createElement('button');
+    questionEndBtn.className = 'video-question-end-btn';
+    questionEndBtn.textContent = '❌ 질문 완료';
+    questionEndBtn.id = `question-end-btn-${vid}`;
+    questionEndBtn.style.display = 'none';
+    questionEndBtn.onclick = () => {
+      endGuestQuestion(vid);
+    };
+    wrapper.appendChild(questionEndBtn);
+    
+    // 음소거 해제 버튼
+    const unmuteBtn = document.createElement('button');
+    unmuteBtn.className = 'video-unmute-btn muted';
+    unmuteBtn.textContent = '🔇 음소거';
+    unmuteBtn.id = `unmute-btn-${vid}`;
+    unmuteBtn.onclick = () => {
+      toggleGuestAudio(vid, unmuteBtn);
+    };
+    wrapper.appendChild(unmuteBtn);
+  }
+  
   remoteVideosGrid.appendChild(wrapper);
   
   return video;
@@ -1829,6 +1948,9 @@ function createRemoteVideoElement(vid, label=''){
 
 // 원격 비디오 엘리먼트 제거
 function removeRemoteVideoElement(vid){
+  // 오디오 트랙 맵에서도 제거
+  guestAudioTracks.delete(vid);
+  
   const wrapper = document.getElementById(`remote-video-${vid}`);
   if (wrapper) {
     const video = wrapper.querySelector('video');
@@ -1839,6 +1961,189 @@ function removeRemoteVideoElement(vid){
     wrapper.remove();
   }
   remoteVideos.delete(vid);
+}
+
+// 게스트 오디오 음소거/해제 토글 함수 (호스트 전용)
+function toggleGuestAudio(guestId, btnElement) {
+  const audioTrack = guestAudioTracks.get(guestId);
+  if (!audioTrack) {
+    toast('오디오 트랙을 찾을 수 없습니다');
+    return;
+  }
+  
+  if (audioTrack.enabled) {
+    // 음소거
+    audioTrack.enabled = false;
+    btnElement.textContent = '🔇 음소거';
+    btnElement.classList.add('muted');
+    log(`[Host] 게스트 ${guestId.substring(0,6)} 음소거`);
+    toast(`게스트 ${guestId.substring(0,6)} 음소거됨`);
+  } else {
+    // 음소거 해제
+    audioTrack.enabled = true;
+    btnElement.textContent = '🔊 음소거 해제';
+    btnElement.classList.remove('muted');
+    log(`[Host] 게스트 ${guestId.substring(0,6)} 음소거 해제`);
+    toast(`게스트 ${guestId.substring(0,6)} 음소거 해제됨`);
+  }
+}
+
+// 게스트 질문 허락 함수 (호스트 전용)
+async function allowGuestQuestion(guestId) {
+  if (currentQuestionGuestId && currentQuestionGuestId !== guestId) {
+    // 다른 게스트가 이미 질문 중이면 먼저 종료
+    await endGuestQuestion(currentQuestionGuestId);
+  }
+  
+  const guestVideo = remoteVideos.get(guestId);
+  if (!guestVideo || !guestVideo.srcObject) {
+    toast('게스트 비디오 스트림을 찾을 수 없습니다');
+    return;
+  }
+  
+  try {
+    // 게스트 비디오 스트림에서 카메라 트랙 추출
+    const videoTracks = guestVideo.srcObject.getVideoTracks();
+    if (videoTracks.length === 0) {
+      toast('게스트 비디오 트랙을 찾을 수 없습니다');
+      return;
+    }
+    
+    // 게스트 카메라 스트림 생성
+    const guestCameraStream = new MediaStream([videoTracks[0]]);
+    
+    // 게스트 PiP용 비디오 엘리먼트 생성
+    if (!guestQuestionPiPVideo) {
+      guestQuestionPiPVideo = document.createElement('video');
+      guestQuestionPiPVideo.style.position = 'fixed';
+      guestQuestionPiPVideo.style.top = '-9999px';
+      guestQuestionPiPVideo.style.width = '1px';
+      guestQuestionPiPVideo.style.height = '1px';
+      guestQuestionPiPVideo.autoplay = true;
+      guestQuestionPiPVideo.muted = false; // 오디오도 재생
+      guestQuestionPiPVideo.playsInline = true;
+      document.body.appendChild(guestQuestionPiPVideo);
+    }
+    
+    // 스트림 설정
+    guestQuestionPiPVideo.srcObject = guestVideo.srcObject;
+    await guestQuestionPiPVideo.play();
+    
+    // 호스트 카메라 PiP가 활성화되어 있는지 확인
+    const hostPiPActive = document.pictureInPictureElement === hostCameraPiPVideo;
+    let hostPiPWasActive = false;
+    
+    // 호스트 PiP가 활성화되어 있으면 일시적으로 종료
+    if (hostPiPActive) {
+      hostPiPWasActive = true;
+      try {
+        await document.exitPictureInPicture();
+        log('[Host] 호스트 카메라 PiP 일시 종료 (게스트 질문을 위해)');
+      } catch(e) {
+        console.warn('호스트 PiP 종료 실패:', e);
+      }
+    }
+    
+    // 게스트 PiP 시작
+    if (!document.pictureInPictureElement || document.pictureInPictureElement !== guestQuestionPiPVideo) {
+      await guestQuestionPiPVideo.requestPictureInPicture();
+      log(`[Host] 게스트 ${guestId.substring(0,6)} 질문 허락 - PiP 시작`);
+      
+      // 호스트 PiP가 있었으면 다시 시작 (게스트 PiP 밑에 배치)
+      if (hostPiPWasActive && hostCameraPiPVideo) {
+        // 약간의 지연 후 호스트 PiP 다시 시작
+        setTimeout(async () => {
+          try {
+            if (hostCameraPiPVideo.srcObject) {
+              await hostCameraPiPVideo.play();
+              await hostCameraPiPVideo.requestPictureInPicture();
+              log('[Host] 호스트 카메라 PiP 재시작 (게스트 PiP 밑에 배치)');
+              toast('호스트 카메라 PiP가 게스트 PiP 밑에 배치되었습니다. 필요시 수동으로 조정해주세요.');
+            }
+          } catch(e) {
+            console.warn('호스트 PiP 재시작 실패:', e);
+            toast('호스트 카메라 PiP 재시작 실패. 수동으로 시작해주세요.');
+          }
+        }, 500);
+      }
+    }
+    
+    // 게스트 오디오 자동 활성화
+    const audioTrack = guestAudioTracks.get(guestId);
+    if (audioTrack) {
+      audioTrack.enabled = true;
+      log(`[Host] 게스트 ${guestId.substring(0,6)} 오디오 자동 활성화`);
+    }
+    
+    // 음소거 해제 버튼 상태 업데이트
+    const unmuteBtn = document.getElementById(`unmute-btn-${guestId}`);
+    if (unmuteBtn) {
+      unmuteBtn.textContent = '🔊 음소거 해제';
+      unmuteBtn.classList.remove('muted');
+    }
+    
+    // 버튼 상태 변경
+    const allowBtn = document.getElementById(`question-allow-btn-${guestId}`);
+    const endBtn = document.getElementById(`question-end-btn-${guestId}`);
+    if (allowBtn) allowBtn.style.display = 'none';
+    if (endBtn) endBtn.style.display = 'block';
+    
+    currentQuestionGuestId = guestId;
+    toast(`게스트 ${guestId.substring(0,6)}에게 질문 허락됨`);
+    
+  } catch(e) {
+    console.error('게스트 질문 허락 실패:', e);
+    log('[Host] 게스트 질문 허락 실패: ' + e.message);
+    toast('게스트 질문 허락 실패: ' + e.message);
+  }
+}
+
+// 게스트 질문 완료 함수 (호스트 전용)
+async function endGuestQuestion(guestId) {
+  if (currentQuestionGuestId !== guestId) {
+    return; // 현재 질문 중인 게스트가 아니면 무시
+  }
+  
+  try {
+    // 게스트 PiP 종료
+    if (guestQuestionPiPVideo && document.pictureInPictureElement === guestQuestionPiPVideo) {
+      await document.exitPictureInPicture();
+      log(`[Host] 게스트 ${guestId.substring(0,6)} 질문 완료 - PiP 종료`);
+    }
+    
+    // 게스트 PiP 비디오 정리
+    if (guestQuestionPiPVideo) {
+      guestQuestionPiPVideo.srcObject = null;
+    }
+    
+    // 게스트 오디오 다시 음소거
+    const audioTrack = guestAudioTracks.get(guestId);
+    if (audioTrack) {
+      audioTrack.enabled = false;
+      log(`[Host] 게스트 ${guestId.substring(0,6)} 오디오 음소거 복귀`);
+    }
+    
+    // 음소거 해제 버튼 상태 업데이트
+    const unmuteBtn = document.getElementById(`unmute-btn-${guestId}`);
+    if (unmuteBtn) {
+      unmuteBtn.textContent = '🔇 음소거';
+      unmuteBtn.classList.add('muted');
+    }
+    
+    // 버튼 상태 복귀
+    const allowBtn = document.getElementById(`question-allow-btn-${guestId}`);
+    const endBtn = document.getElementById(`question-end-btn-${guestId}`);
+    if (allowBtn) allowBtn.style.display = 'block';
+    if (endBtn) endBtn.style.display = 'none';
+    
+    currentQuestionGuestId = null;
+    toast(`게스트 ${guestId.substring(0,6)} 질문 완료`);
+    
+  } catch(e) {
+    console.error('게스트 질문 완료 실패:', e);
+    log('[Host] 게스트 질문 완료 실패: ' + e.message);
+    toast('게스트 질문 완료 실패: ' + e.message);
+  }
 }
 
 async function acceptGuest(vid, data, li){
@@ -1934,6 +2239,16 @@ async function acceptGuest(vid, data, li){
     // 원격 트랙 수신 처리
     _pc.ontrack = (ev)=>{
       const stream = ev.streams[0];
+      const track = ev.track;
+      
+      // 오디오 트랙인 경우 저장 (음소거 제어용)
+      if (track.kind === 'audio') {
+        guestAudioTracks.set(vid, track);
+        // 게스트 입장 시 기본적으로 음소거 상태
+        track.enabled = false;
+        log(`[Host] 게스트 ${vid.substring(0,6)} 오디오 트랙 수신 (음소거 상태)`);
+      }
+      
       if (comm==='broadcast'){
         // 방송에서 호스트는 게스트 영상을 굳이 볼 필요 없음
       }else{
@@ -1945,6 +2260,8 @@ async function acceptGuest(vid, data, li){
         }
         if (videoEl.srcObject !== stream) {
           videoEl.srcObject = stream;
+          // 비디오는 음소거 상태로 재생 (오디오는 트랙 레벨에서 제어)
+          videoEl.muted = false;
           (async ()=>{ 
             try{ 
               videoEl.setAttribute('playsinline',''); 
@@ -2035,7 +2352,14 @@ async function startGuest(){
         localPreview.srcObject = localStream;
         try{ localPreview.setAttribute('playsinline',''); localPreview.setAttribute('webkit-playsinline',''); await localPreview.play(); }catch(e){}
       }
-      localStream.getTracks().forEach(t=>pc.addTrack(t, localStream));
+      // 게스트 입장 시 오디오 트랙을 음소거 상태로 설정
+      localStream.getTracks().forEach(t => {
+        if (t.kind === 'audio') {
+          t.enabled = false; // 오디오 트랙 비활성화 (음소거)
+          log('[Guest] 오디오 트랙 음소거 상태로 입장');
+        }
+        pc.addTrack(t, localStream);
+      });
     }
 
   // 방송 모드에서 비디오 트랙 추적 초기화
