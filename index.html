@@ -1091,9 +1091,11 @@ function openHostCameraWindow(cameraStream) {
       log(`[Host] 디스플레이 정보: ${primaryScreenWidth}x${primaryScreenHeight}, 창 위치: ${windowLeft},${windowTop}`);
     }
     
-    // 새 창 열기 (더 큰 크기, 다른 디스플레이 위치 시도, 주소창 완전 제거)
-    const windowFeatures = `width=${windowWidth},height=${windowHeight},left=${windowLeft},top=${windowTop},resizable=yes,scrollbars=no,menubar=no,toolbar=no,location=no,status=no,addressbar=no`;
-    hostCameraWindow = window.open('', 'hostCameraWindow', windowFeatures);
+    // 새 창 열기 (더 큰 크기, 다른 디스플레이 위치 시도)
+    // 참고: 최신 브라우저 보안 정책상 주소창을 완전히 제거하는 것은 제한적일 수 있음
+    // location=no는 일부 브라우저에서만 작동하며, Chrome 최신 버전에서는 보안상 제한될 수 있음
+    const windowFeatures = `width=${windowWidth},height=${windowHeight},left=${windowLeft},top=${windowTop},resizable=yes,scrollbars=no,menubar=no,toolbar=no,location=no,status=no,directories=no`;
+    hostCameraWindow = window.open('about:blank', 'hostCameraWindow', windowFeatures);
     
     if (!hostCameraWindow) {
       toast('팝업이 차단되었습니다. 팝업 차단을 해제해주세요.');
@@ -1120,32 +1122,8 @@ function openHostCameraWindow(cameraStream) {
       font-family: ui-sans-serif, system-ui, sans-serif;
     }
     .drag-header {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 40px;
-      background: rgba(0,0,0,0);
-      border-bottom: none;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0 12px;
-      cursor: move;
-      -webkit-app-region: drag;
-      user-select: none;
-      z-index: 100;
-      opacity: 0;
-      transition: opacity 0.3s, background 0.3s;
-      pointer-events: none;
-    }
-    body:hover .drag-header {
-      opacity: 1;
-      background: rgba(0,0,0,0.7);
-      pointer-events: auto;
-    }
-    .drag-header:active {
-      cursor: grabbing;
+      /* 호스트 카메라 별도 창에서는 영상만 보이도록 헤더를 완전히 숨김 */
+      display: none !important;
     }
     .drag-header .title {
       color: #fff;
@@ -1272,6 +1250,36 @@ function openHostCameraWindow(cameraStream) {
     
     // 스트림을 새 창에 전달
     hostCameraWindow.document.close();
+    
+    // 주소창이 보이더라도 최소화하기 위한 시도
+    // 참고: 최신 Chrome/Edge에서는 보안상 주소창을 완전히 제거할 수 없습니다
+    try {
+      // 창이 완전히 로드된 후 주소창 영역을 최소화하려는 시도
+      const minimizeAddressBar = () => {
+        try {
+          if (hostCameraWindow && !hostCameraWindow.closed) {
+            // 주소창 높이를 고려하여 창 크기 조정 (주소창이 보이더라도 영상 영역 확보)
+            // 주소창 높이는 약 40-50px 정도
+            const addressBarHeight = 50;
+            const adjustedHeight = windowHeight + addressBarHeight;
+            hostCameraWindow.resizeTo(windowWidth, adjustedHeight);
+          }
+        } catch(e) {
+          // 보안 정책으로 인해 접근 불가능할 수 있음
+          console.warn('[Host] 창 크기 조정 실패:', e);
+        }
+      };
+      
+      if (hostCameraWindow.document.readyState === 'complete') {
+        setTimeout(minimizeAddressBar, 200);
+      } else {
+        hostCameraWindow.addEventListener('load', () => {
+          setTimeout(minimizeAddressBar, 200);
+        });
+      }
+    } catch(e) {
+      console.warn('[Host] 주소창 최소화 설정 실패:', e);
+    }
     
     // 스트림 설정 (문서 로드 후)
     const setStream = () => {
