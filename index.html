@@ -37,15 +37,6 @@
     .local-preview-wrapper.show{display:block}
     #toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#0d1433;border:1px solid #2a3a77;color:#eaf0ff;padding:10px 14px;border-radius:12px;display:none}
     .hidden{display:none!important}
-    .pip-overlay{position:absolute;top:20px;right:20px;width:240px;height:180px;min-width:120px;min-height:90px;z-index:1000;background:rgba(16,24,58,.95);border:2px solid #22306b;border-radius:12px;padding:8px;box-shadow:0 8px 30px rgba(0,0,0,.5);display:none;user-select:none;box-sizing:border-box;overflow:visible}
-    .pip-overlay.show{display:block}
-    .pip-overlay video{width:100%;height:calc(100% - 30px);border-radius:8px;background:#000;pointer-events:none;object-fit:contain;display:block}
-    .pip-overlay .pip-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;cursor:move}
-    .pip-overlay .pip-title{font-size:12px;color:#a7b3d4;font-weight:bold;pointer-events:none}
-    .pip-overlay .pip-close{width:24px;height:24px;border-radius:50%;border:none;background:#ff6a6a;color:#fff;cursor:pointer;font-size:14px;line-height:1;padding:0;display:flex;align-items:center;justify-content:center;pointer-events:auto;flex-shrink:0}
-    .pip-overlay .pip-close:hover{background:#ff4a4a}
-    .pip-overlay .pip-resize-handle{position:absolute;bottom:0;right:0;width:20px;height:20px;cursor:nwse-resize;background:linear-gradient(-45deg,transparent 30%,rgba(106,166,255,.6) 30%,rgba(106,166,255,.6) 40%,transparent 40%,transparent 60%,rgba(106,166,255,.6) 60%,rgba(106,166,255,.6) 70%,transparent 70%);pointer-events:auto;z-index:1001;border-radius:0 0 12px 0}
-    .pip-overlay .pip-resize-handle:hover{background:linear-gradient(-45deg,transparent 30%,rgba(106,166,255,.9) 30%,rgba(106,166,255,.9) 40%,transparent 40%,transparent 60%,rgba(106,166,255,.9) 60%,rgba(106,166,255,.9) 70%,transparent 70%)}
     .fullscreen-video{position:fixed;top:0;left:0;width:100vw;height:100vh;background:#000;z-index:2000;display:none}
     .fullscreen-video.show{display:block}
     .fullscreen-video video{width:100%;height:100%;object-fit:contain}
@@ -79,11 +70,8 @@
   <section class="card">
     <h2 style="margin:0 0 8px 0">라이브</h2>
 
-    <!-- 방송 모드: 단일 플레이어 -->
-    <video id="player" class="" autoplay playsinline webkit-playsinline muted controls></video>
-
     <!-- 미팅 모드: 다자간 비디오 그리드 -->
-    <div id="meetingVideos" class="hidden">
+    <div id="meetingVideos">
       <div class="meeting-grid" id="remoteVideosGrid"></div>
       <div class="local-preview-wrapper show" id="localPreviewWrapper">
         <small class="muted">나(미리보기 · 항상 음소거)</small>
@@ -94,29 +82,11 @@
       </div>
     </div>
 
-    <!-- PiP 오버레이 (화면공유 중 호스트 카메라) -->
-    <div id="pipOverlay" class="pip-overlay">
-      <div class="pip-header">
-        <span class="pip-title">호스트 카메라</span>
-        <button class="pip-close" id="pipCloseBtn">×</button>
-      </div>
-      <video id="pipVideo" autoplay playsinline webkit-playsinline muted></video>
-      <div class="pip-resize-handle"></div>
-    </div>
 
     <!-- 전체화면 비디오 -->
     <div id="fullscreenVideo" class="fullscreen-video">
       <button class="fs-close" id="fsCloseBtn">×</button>
       <video id="fsVideo" autoplay playsinline webkit-playsinline controls></video>
-      <!-- 전체화면 모드용 PiP 오버레이 -->
-      <div id="fullscreenPipOverlay" class="pip-overlay" style="position:absolute;top:20px;right:20px;z-index:2002;">
-        <div class="pip-header">
-          <span class="pip-title">호스트 카메라</span>
-          <button class="pip-close" id="fullscreenPipCloseBtn">×</button>
-        </div>
-        <video id="fullscreenPipVideo" autoplay playsinline webkit-playsinline muted></video>
-        <div class="pip-resize-handle"></div>
-      </div>
     </div>
 
     <audio id="audiomirror" autoplay playsinline webkit-playsinline style="display:none"></audio>
@@ -136,22 +106,6 @@
       </div>
     </div>
 
-    <div class="grid-2" style="margin-top:10px">
-      <div>
-        <label>통신 모드</label>
-        <div class="row" id="commRow">
-          <label class="row"><input type="radio" name="comm" value="broadcast" checked> 방송(단방향)</label>
-          <label class="row"><input type="radio" name="comm" value="meeting"> 미팅(양방향)</label>
-        </div>
-      </div>
-      <div id="sourceWrap">
-        <label>소스 선택(방송 모드)</label>
-        <div class="row" id="sourceRow">
-          <label class="row"><input type="radio" name="source" value="screen"> 화면공유</label>
-          <label class="row"><input type="radio" name="source" value="camera" checked> 카메라</label>
-        </div>
-      </div>
-    </div>
 
     <!-- 카메라 제어 -->
     <div class="row" id="cameraCtrl" style="margin-top:10px; display:none">
@@ -174,12 +128,6 @@
       <button id="unmuteBtn" style="display:none">🔊 소리 켜기</button>
     </div>
 
-    <!-- 오디오 증폭(방송 모드에서 송출자만 표시) -->
-    <div id="gainRow" class="row" style="margin-top:8px; display:none">
-      <small class="muted">오디오 증폭:</small>
-      <input id="gainSlider" type="range" min="1" max="3" step="0.1" value="2" />
-      <small class="muted"><span id="gainVal">2.0</span>x</small>
-    </div>
 
     <div style="margin-top:6px"><small id="status" class="muted">대기 중…</small></div>
     <div id="presenterHints" style="margin-top:12px;display:none">
@@ -249,7 +197,6 @@ firebase.auth().signInAnonymously().catch(err=>{ console.error('Auth failed:', e
 const db = firebase.database();
 
 /* ---------------- UI refs ---------------- */
-const player = document.getElementById('player');                 // 방송 모드 플레이어
 const meetingVideos = document.getElementById('meetingVideos');   // 미팅 모드 컨테이너
 const localPreview = document.getElementById('localPreview');
 const audioMirror = document.getElementById('audiomirror');
@@ -283,20 +230,13 @@ const togglePreviewBtn = document.getElementById('togglePreviewBtn');
 const chatMessages = document.getElementById('chatMessages');
 const chatInput = document.getElementById('chatInput');
 const chatSendBtn = document.getElementById('chatSendBtn');
-const pipOverlay = document.getElementById('pipOverlay');
-const pipVideo = document.getElementById('pipVideo');
-const pipCloseBtn = document.getElementById('pipCloseBtn');
 const fullscreenVideo = document.getElementById('fullscreenVideo');
 const fsVideo = document.getElementById('fsVideo');
 const fsCloseBtn = document.getElementById('fsCloseBtn');
-const fullscreenPipOverlay = document.getElementById('fullscreenPipOverlay');
-const fullscreenPipVideo = document.getElementById('fullscreenPipVideo');
-const fullscreenPipCloseBtn = document.getElementById('fullscreenPipCloseBtn');
 
 /* ---------------- State ---------------- */
 let role = 'host';                 // 'host' | 'guest'
-let comm = 'broadcast';            // 'broadcast' | 'meeting'
-let sourceMode = 'camera';         // 방송 모드에서만 사용: 'screen' | 'camera'
+let comm = 'meeting';              // 미팅 모드만 사용
 let facingMode = 'user';           // 카메라 전/후면
 let roomId = '';
 let viewerId = '';
@@ -311,10 +251,6 @@ let isScreenSharing = false;       // 화면공유 중 여부
 let screenShareStream = null;       // 화면공유 스트림 (종료 감지용)
 let hostCameraStream = null;        // 호스트 카메라 스트림 (별도 창용/PiP용)
 let hostCameraWindow = null;        // 호스트 카메라 별도 창
-let showHostCameraPip = false;      // 호스트 카메라 PiP 표시 여부 (미팅 모드용)
-let broadcastVideoTracks = [];     // 방송 모드 게스트가 받은 비디오 트랙 추적
-let broadcastScreenTrack = null;   // 방송 모드 게스트가 받은 화면공유 트랙
-let broadcastCameraTrack = null;   // 방송 모드 게스트가 받은 카메라 트랙
 let firebaseListeners = {           // Firebase 리스너 정리를 위한 참조
   offers: null,
   answers: null,
@@ -344,7 +280,6 @@ function toast(msg){ toastEl.textContent = msg; toastEl.style.display='block'; s
 function randomId(len=10){ const c='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'; let s=''; for(let i=0;i<len;i++) s+=c[Math.floor(Math.random()*c.length)]; return s; }
 function generateRoomId(){ const d=new Date(); const year=d.getFullYear(); const month=String(d.getMonth()+1).padStart(2,'0'); const day=String(d.getDate()).padStart(2,'0'); return `RM-${year}${month}${day}`; }
 const isiOS = (() => { const ua = navigator.userAgent||''; const iOS=/iPad|iPhone|iPod/.test(ua); const iPadOS13Plus=navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1; return iOS||iPadOS13Plus; })();
-player.volume = 1.0;
 
 /* ---------------- UI bindings ---------------- */
 document.querySelectorAll('input[name="role"]').forEach(r=>{
@@ -353,63 +288,25 @@ document.querySelectorAll('input[name="role"]').forEach(r=>{
     refreshUIByMode();
   });
 });
-document.querySelectorAll('input[name="comm"]').forEach(r=>{
-  r.addEventListener('change', ()=>{
-    comm = document.querySelector('input[name="comm"]:checked').value;
-    refreshUIByMode();
-  });
-});
-document.querySelectorAll('input[name="source"]').forEach(r=>{
-  r.addEventListener('change', ()=>{
-    sourceMode = document.querySelector('input[name="source"]:checked').value;
-  });
-});
 function refreshUIByMode(){
   const isHost = role==='host';
-  const isMeeting = comm==='meeting';
 
   presenterHints.style.display = isHost ? 'block' : 'none';
-  gainRow.style.display = (isHost && comm==='broadcast') ? 'flex' : 'none';
-  sourceWrap.style.display = (comm==='broadcast') ? 'block' : 'none';
-
-  // 플레이어 표시 전환
-  if (isMeeting){
-    player.classList.add('hidden');
-    meetingVideos.classList.remove('hidden');
-    // 미팅 모드: 시작 후에는 항상 카메라/마이크 컨트롤 표시
-    cameraCtrl.style.display = isRunning ? 'flex' : 'none';
-    shareScreenBtn.style.display = isRunning ? 'inline-block' : 'none'; // 미팅 모드에서 화면공유 버튼 표시
-  }else{
-    meetingVideos.classList.add('hidden');
-    player.classList.remove('hidden');
-    // 방송 모드: 호스트는 카메라 모드일 때 또는 시작 후, 게스트는 시작 후 버튼 표시
-    if (isHost) {
-      cameraCtrl.style.display = (sourceMode==='camera' || isRunning) ? 'flex' : 'none';
-      // 방송 모드 호스트도 화면공유 버튼 표시 (카메라에서 화면공유로 전환 가능)
-      shareScreenBtn.style.display = (isRunning && sourceMode==='camera') ? 'inline-block' : 'none';
-      // 호스트 카메라 별도 창 열기 버튼 (호스트만, 카메라 스트림이 있을 때)
-      const hasCameraForWindow = (isRunning && hostCameraStream) || (isRunning && sourceMode === 'camera' && localStream && localStream.getVideoTracks().length > 0);
-      if (openCameraWindowBtn) {
-        openCameraWindowBtn.style.display = hasCameraForWindow ? 'inline-block' : 'none';
-      }
-      // 새 브라우저 창 열기 버튼 (호스트만, 카메라 모드이고 실행 중일 때)
-      const shouldShowBtn = isRunning && comm === 'broadcast' && sourceMode === 'camera' && isHost;
-      if (openBrowserWindowBtn) {
-        openBrowserWindowBtn.style.display = shouldShowBtn ? 'inline-block' : 'none';
-        if (shouldShowBtn) {
-          console.log('[UI] 새 창 열기 버튼 표시됨', { isRunning, comm, sourceMode, isHost, hostCameraStream, localStream });
-        } else {
-          console.log('[UI] 새 창 열기 버튼 숨김', { isRunning, comm, sourceMode, isHost });
-        }
-      }
-    } else {
-      // 방송 모드 게스트는 수신만 하므로 버튼 불필요하지만, 사용자 요청에 따라 시작 후 표시
-      cameraCtrl.style.display = isRunning ? 'flex' : 'none';
-      shareScreenBtn.style.display = 'none'; // 방송 모드 게스트는 화면공유 불가
-      openBrowserWindowBtn.style.display = 'none';
-    }
+  
+  // 미팅 모드: 시작 후에는 항상 카메라/마이크 컨트롤 표시
+  meetingVideos.classList.remove('hidden');
+  cameraCtrl.style.display = isRunning ? 'flex' : 'none';
+  shareScreenBtn.style.display = isRunning ? 'inline-block' : 'none';
+  
+  // 호스트 카메라 별도 창 열기 버튼 (호스트만, 카메라 스트림이 있을 때)
+  if (isHost && openCameraWindowBtn) {
+    const hasCameraForWindow = (isRunning && hostCameraStream) || (isRunning && localStream && localStream.getVideoTracks().length > 0);
+    openCameraWindowBtn.style.display = hasCameraForWindow ? 'inline-block' : 'none';
   }
-  if (!isMeeting && role==='guest' && isiOS) showIOSUnmuteOverlayIfNeeded();
+  
+  if (openBrowserWindowBtn) {
+    openBrowserWindowBtn.style.display = 'none';
+  }
 }
 refreshUIByMode();
 
@@ -449,7 +346,7 @@ if (openCameraWindowBtn) {
     // hostCameraStream이 있으면 사용, 없으면 localStream에서 카메라 트랙 추출
     let cameraStreamToUse = hostCameraStream;
     
-    if (!cameraStreamToUse && localStream && sourceMode === 'camera') {
+    if (!cameraStreamToUse && localStream) {
       const videoTrack = localStream.getVideoTracks()[0];
       if (videoTrack) {
         cameraStreamToUse = new MediaStream([videoTrack]);
@@ -458,7 +355,7 @@ if (openCameraWindowBtn) {
     
     if (!cameraStreamToUse) {
       toast('카메라 스트림이 없습니다');
-      console.warn('[Host] 카메라 스트림 없음', { hostCameraStream, localStream, sourceMode });
+      console.warn('[Host] 카메라 스트림 없음', { hostCameraStream, localStream });
       return;
     }
     
@@ -476,8 +373,8 @@ if (openCameraWindowBtn) {
 // 새 브라우저 창/탭에서 카메라 영상 열기
 if (openBrowserWindowBtn) {
   openBrowserWindowBtn.addEventListener('click', () => {
-    // hostCameraStream이 없어도 카메라 모드면 localStream 사용
-    const streamToUse = hostCameraStream || (sourceMode === 'camera' && localStream ? localStream : null);
+    // hostCameraStream이 없으면 localStream 사용
+    const streamToUse = hostCameraStream || (localStream ? localStream : null);
     
     if (!streamToUse || !roomId) {
       toast('카메라 스트림이 없습니다');
@@ -724,29 +621,6 @@ chatInput.addEventListener('keypress', (e) => {
   }
 });
 
-// PiP 닫기 버튼
-pipCloseBtn.addEventListener('click', () => {
-  try {
-    showHostCameraPip = false;
-    pipOverlay.classList.remove('show');
-    // 호스트인 경우 (미팅 모드)
-    if (hostCameraStream) {
-      hostCameraStream.getTracks().forEach(t => {
-        t.onended = null;
-        t.stop();
-      });
-      hostCameraStream = null;
-    }
-    // 게스트인 경우 (방송 모드) - 트랙은 중지하지 않고 PiP만 닫기
-    if (broadcastCameraTrack && comm === 'broadcast') {
-      // 트랙은 유지하고 PiP만 닫기
-      broadcastCameraTrack = null;
-    }
-    pipVideo.srcObject = null;
-  } catch(e) {
-    console.error('PiP close error:', e);
-  }
-});
 
 // 전체화면 닫기 버튼
 fsCloseBtn.addEventListener('click', () => {
@@ -754,10 +628,6 @@ fsCloseBtn.addEventListener('click', () => {
     fullscreenVideo.classList.remove('show');
     fsVideo.srcObject = null;
     fsVideo.pause();
-    // 전체화면 PiP도 닫기
-    if (fullscreenPipOverlay) {
-      fullscreenPipOverlay.classList.remove('show');
-    }
   } catch(e) {
     console.error('Fullscreen close error:', e);
   }
@@ -770,223 +640,6 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// 전체화면 PiP 닫기 버튼
-if (fullscreenPipCloseBtn) {
-  fullscreenPipCloseBtn.addEventListener('click', () => {
-    try {
-      if (fullscreenPipOverlay) {
-        fullscreenPipOverlay.classList.remove('show');
-      }
-      // 트랙은 유지하고 PiP만 닫기
-    } catch(e) {
-      console.error('Fullscreen PiP close error:', e);
-    }
-  });
-}
-
-/* ---------------- PiP 드래그 및 크기 조절 기능 ---------------- */
-function makePipDraggableAndResizable(pipElement) {
-  if (!pipElement) return;
-  
-  let isDragging = false;
-  let isResizing = false;
-  let startX, startY, startLeft, startTop, startWidth, startHeight;
-  const header = pipElement.querySelector('.pip-header');
-  const resizeHandle = pipElement.querySelector('.pip-resize-handle');
-  
-  // 전체화면 PiP는 absolute 위치 유지, 일반 PiP는 absolute로 변경하여 스크롤 가능
-  const isFullscreenPip = pipElement.id === 'fullscreenPipOverlay';
-  if (!isFullscreenPip) {
-    // 일반 PiP는 absolute로 설정하여 스크롤 가능한 영역까지 이동 가능
-    pipElement.style.position = 'absolute';
-  }
-  
-  // 드래그 시작 (헤더 클릭)
-  if (header) {
-    header.addEventListener('mousedown', (e) => {
-      if (e.target.classList.contains('pip-close')) return; // 닫기 버튼 클릭은 무시
-      isDragging = true;
-      startX = e.clientX;
-      startY = e.clientY;
-      const rect = pipElement.getBoundingClientRect();
-      const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
-      const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-      // body 기준 절대 위치 계산
-      const bodyRect = document.body.getBoundingClientRect();
-      startLeft = rect.left - bodyRect.left + scrollLeft;
-      startTop = rect.top - bodyRect.top + scrollTop;
-      pipElement.style.cursor = 'move';
-      e.preventDefault();
-    });
-    
-    // 터치 이벤트 지원
-    header.addEventListener('touchstart', (e) => {
-      if (e.target.classList.contains('pip-close')) return;
-      isDragging = true;
-      const touch = e.touches[0];
-      startX = touch.clientX;
-      startY = touch.clientY;
-      const rect = pipElement.getBoundingClientRect();
-      const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
-      const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-      // body 기준 절대 위치 계산
-      const bodyRect = document.body.getBoundingClientRect();
-      startLeft = rect.left - bodyRect.left + scrollLeft;
-      startTop = rect.top - bodyRect.top + scrollTop;
-      e.preventDefault();
-    });
-  }
-  
-  // 크기 조절 시작 (우하단 핸들)
-  if (resizeHandle) {
-    resizeHandle.addEventListener('mousedown', (e) => {
-      isResizing = true;
-      startX = e.clientX;
-      startY = e.clientY;
-      startWidth = pipElement.offsetWidth;
-      startHeight = pipElement.offsetHeight;
-      pipElement.style.cursor = 'nwse-resize';
-      e.preventDefault();
-      e.stopPropagation();
-    });
-    
-    // 터치 이벤트 지원
-    resizeHandle.addEventListener('touchstart', (e) => {
-      isResizing = true;
-      const touch = e.touches[0];
-      startX = touch.clientX;
-      startY = touch.clientY;
-      startWidth = pipElement.offsetWidth;
-      startHeight = pipElement.offsetHeight;
-      e.preventDefault();
-      e.stopPropagation();
-    });
-  }
-  
-  // 드래그/크기 조절 중
-  const handleMove = (clientX, clientY) => {
-    if (isDragging) {
-      const deltaX = clientX - startX;
-      const deltaY = clientY - startY;
-      
-      // body 기준 절대 위치 계산 (화면 경계 제한 없음)
-      let newLeft = startLeft + deltaX;
-      let newTop = startTop + deltaY;
-      
-      // 화면 경계 제한 없음 - 화면 밖으로도 이동 가능
-      // 음수 값도 허용하여 화면 왼쪽/위쪽 밖으로도 이동 가능
-      // 스크롤 가능한 영역까지 확장
-      
-      pipElement.style.left = newLeft + 'px';
-      pipElement.style.top = newTop + 'px';
-      pipElement.style.right = 'auto';
-      pipElement.style.bottom = 'auto';
-      if (!isFullscreenPip) {
-        pipElement.style.position = 'absolute'; // absolute로 설정하여 스크롤과 함께 이동
-        
-        // body 크기를 PiP 위치에 맞게 확장하여 화면 밖에 있어도 보이도록
-        const pipRect = pipElement.getBoundingClientRect();
-        const bodyRect = document.body.getBoundingClientRect();
-        const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
-        const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-        
-        // PiP의 절대 위치 계산
-        const pipAbsLeft = newLeft;
-        const pipAbsTop = newTop;
-        const pipWidth = pipElement.offsetWidth;
-        const pipHeight = pipElement.offsetHeight;
-        
-        // body의 현재 크기
-        const currentBodyWidth = Math.max(document.body.scrollWidth, window.innerWidth);
-        const currentBodyHeight = Math.max(document.body.scrollHeight, window.innerHeight);
-        
-        // PiP가 포함되도록 필요한 최소 크기 계산 (음수 좌표도 고려)
-        // 음수 좌표인 경우 body의 시작 위치를 조정하기 위해 padding 사용
-        let bodyPaddingLeft = 0;
-        let bodyPaddingTop = 0;
-        
-        if (pipAbsLeft < 0) {
-          bodyPaddingLeft = Math.abs(pipAbsLeft) + 20;
-          document.body.style.paddingLeft = bodyPaddingLeft + 'px';
-        }
-        if (pipAbsTop < 0) {
-          bodyPaddingTop = Math.abs(pipAbsTop) + 20;
-          document.body.style.paddingTop = bodyPaddingTop + 'px';
-        }
-        
-        // PiP의 실제 위치를 padding을 고려하여 조정
-        if (bodyPaddingLeft > 0 || bodyPaddingTop > 0) {
-          pipElement.style.left = (pipAbsLeft + bodyPaddingLeft) + 'px';
-          pipElement.style.top = (pipAbsTop + bodyPaddingTop) + 'px';
-        }
-        
-        // PiP가 포함되도록 필요한 최소 크기 계산
-        const adjustedLeft = pipAbsLeft + bodyPaddingLeft;
-        const adjustedTop = pipAbsTop + bodyPaddingTop;
-        const requiredWidth = Math.max(currentBodyWidth, adjustedLeft + pipWidth + 20);
-        const requiredHeight = Math.max(currentBodyHeight, adjustedTop + pipHeight + 20);
-        
-        // body 크기 확장 (필요한 경우만)
-        if (requiredWidth > currentBodyWidth || requiredHeight > currentBodyHeight) {
-          document.body.style.minWidth = requiredWidth + 'px';
-          document.body.style.minHeight = requiredHeight + 'px';
-        }
-      }
-    } else if (isResizing) {
-      const deltaX = clientX - startX;
-      const deltaY = clientY - startY;
-      let newWidth = startWidth + deltaX;
-      let newHeight = startHeight + deltaY;
-      
-      // 최소 크기 제한
-      const minWidth = 120;
-      const minHeight = 90;
-      newWidth = Math.max(minWidth, newWidth);
-      newHeight = Math.max(minHeight, newHeight);
-      
-      pipElement.style.width = newWidth + 'px';
-      pipElement.style.height = newHeight + 'px';
-    }
-  };
-  
-  // 마우스 이동
-  document.addEventListener('mousemove', (e) => {
-    if (isDragging || isResizing) {
-      handleMove(e.clientX, e.clientY);
-      e.preventDefault();
-    }
-  });
-  
-  // 터치 이동
-  document.addEventListener('touchmove', (e) => {
-    if (isDragging || isResizing) {
-      const touch = e.touches[0];
-      handleMove(touch.clientX, touch.clientY);
-      e.preventDefault();
-    }
-  });
-  
-  // 드래그/크기 조절 종료
-  const handleEnd = () => {
-    if (isDragging || isResizing) {
-      isDragging = false;
-      isResizing = false;
-      pipElement.style.cursor = '';
-    }
-  };
-  
-  document.addEventListener('mouseup', handleEnd);
-  document.addEventListener('touchend', handleEnd);
-  document.addEventListener('touchcancel', handleEnd);
-}
-
-// PiP 오버레이에 드래그 및 크기 조절 기능 적용
-if (pipOverlay) {
-  makePipDraggableAndResizable(pipOverlay);
-}
-if (fullscreenPipOverlay) {
-  makePipDraggableAndResizable(fullscreenPipOverlay);
-}
 
 /* ---------------- Media Builders ---------------- */
 async function getCameraStream(){
@@ -1490,41 +1143,8 @@ window.addEventListener('message', (e) => {
 async function buildLocalStreamForCurrentMode(){
   try {
     if (comm==='broadcast'){
-      if (role!=='host'){
-        // 게스트는 영상 안 보냄(수신만)
-        return null;
-      }
-      const raw = (sourceMode==='screen') ? await getScreenStream() : await getCameraStream();
-      if (!raw) {
-        throw new Error('미디어 스트림을 획득할 수 없습니다');
-      }
-      const amplified = await makeAmplifiedStreamFrom(raw, sourceMode==='screen');
-      
-      // 화면공유 모드일 때 카메라 스트림도 추가 (별도 창용)
-      if (sourceMode === 'screen') {
-        try {
-          const cameraStream = await getCameraStream();
-          const cameraTrack = cameraStream.getVideoTracks()[0];
-          if (cameraTrack) {
-            // 카메라 트랙을 amplified 스트림에 추가
-            amplified.addTrack(cameraTrack);
-            // 호스트 카메라 스트림 저장 (별도 창용)
-            hostCameraStream = new MediaStream([cameraTrack]);
-            log('[Host] 화면공유와 함께 카메라 스트림 추가됨');
-            
-            // 별도 창에 카메라 표시
-            openHostCameraWindow(hostCameraStream);
-          }
-        } catch(e) {
-          console.warn('[Host] 카메라 스트림 획득 실패 (별도 창용):', e);
-          // 카메라 실패해도 화면공유는 계속 진행
-        }
-      }
-      
-      return amplified;
-    }else{ // meeting
+      // 미팅 모드: 카메라 스트림 사용
       const cam = await getCameraStream();
-      // 미팅은 증폭 불필요(에코 위험). 원본 그대로 사용
       return cam;
     }
   } catch(e) {
@@ -1572,14 +1192,9 @@ async function replaceVideoTrack(){
   }
 
   // 프리뷰 갱신
-  if (comm==='meeting'){
-    if (showLocalPreview) {
-      localPreview.srcObject = localStream;
-      await forcePlay(localPreview);
-    }
-  }else{
-    player.srcObject = localStream;
-    await forcePlay(player);
+  if (showLocalPreview) {
+    localPreview.srcObject = localStream;
+    await forcePlay(localPreview);
   }
 }
 
@@ -1590,17 +1205,6 @@ async function startScreenShare(){
     return;
   }
   
-  // 방송 모드와 미팅 모드 모두 지원
-  if (comm !== 'meeting' && comm !== 'broadcast') {
-    toast('지원되지 않는 모드입니다');
-    return;
-  }
-  
-  // 방송 모드에서 이미 화면공유 모드로 시작한 경우
-  if (comm === 'broadcast' && sourceMode === 'screen') {
-    toast('이미 화면공유 모드입니다');
-    return;
-  }
   
   if (isScreenSharing) {
     log('[Screen] 이미 화면공유 중입니다');
@@ -1675,38 +1279,7 @@ async function startScreenShare(){
           }
         });
       } else {
-        // 미팅 모드: 기존 트랙을 화면공유로 교체하고 카메라는 새로 획득
-        // 미팅 모드는 PiP 사용, 방송 모드는 별도 창 사용
-        if (comm === 'broadcast') {
-          // 방송 모드: 별도 창 사용
-          try {
-            const cameraStream = await getCameraStream();
-            cameraTrackForPip = cameraStream.getVideoTracks()[0];
-            if (cameraTrackForPip) {
-              hostCameraStream = new MediaStream([cameraTrackForPip]);
-              // 별도 창에 카메라 표시
-              openHostCameraWindow(hostCameraStream);
-            }
-          } catch(e) {
-            console.warn('[Screen] 카메라 스트림 획득 실패 (별도 창용):', e);
-          }
-        } else {
-          // 미팅 모드: PiP 사용
-          try {
-            const cameraStream = await getCameraStream();
-            cameraTrackForPip = cameraStream.getVideoTracks()[0];
-            if (cameraTrackForPip) {
-              hostCameraStream = new MediaStream([cameraTrackForPip]);
-              // PiP 표시
-              showHostCameraPip = true;
-              pipVideo.srcObject = hostCameraStream;
-              pipOverlay.classList.add('show');
-              pipVideo.play().catch(e => {});
-            }
-          } catch(e) {
-            console.warn('[Screen] 카메라 스트림 획득 실패 (PiP용):', e);
-          }
-        }
+        // 미팅 모드: 기존 트랙을 화면공유로 교체
         
         // 기존 트랙 제거
         oldVideoTrack.stop();
@@ -1807,9 +1380,6 @@ async function stopScreenShare(){
       hostCameraStream.getTracks().forEach(t => t.stop());
       hostCameraStream = null;
     }
-    showHostCameraPip = false;
-    pipOverlay.classList.remove('show');
-    pipVideo.srcObject = null;
     
     // 카메라 스트림 획득
     try {
@@ -2072,18 +1642,6 @@ function createRemoteVideoElement(vid, label=''){
         console.warn('Fullscreen video play failed:', e);
       });
       
-      // 전체화면이 열릴 때 카메라 PiP도 표시 (방송 모드에서 카메라 트랙이 있는 경우)
-      if (comm === 'broadcast' && broadcastCameraTrack && fullscreenPipVideo && fullscreenPipOverlay) {
-        // 카메라 스트림이 이미 설정되어 있으면 표시
-        if (!fullscreenPipVideo.srcObject) {
-          const cameraStream = new MediaStream([broadcastCameraTrack]);
-          fullscreenPipVideo.srcObject = cameraStream;
-        }
-        fullscreenPipOverlay.classList.add('show');
-        fullscreenPipVideo.play().catch(e => {
-          console.warn('Fullscreen PiP video play failed:', e);
-        });
-      }
     } catch(e) {
       console.error('Fullscreen error:', e);
       toast('전체화면을 열 수 없습니다');
