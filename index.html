@@ -67,7 +67,7 @@
 </head>
 <body>
 <header>
-  <h1>승인제 WebRTC (방송/미팅-1.1)</h1>
+  <h1>승인제 WebRTC (방송/미팅-1.2)</h1>
   <div class="row">
     <span class="tag">P2P</span>
     <span class="tag">Firebase RTDB</span>
@@ -1023,12 +1023,56 @@ function openHostCameraWindow(cameraStream) {
     body {
       background: #000;
       display: flex;
-      align-items: center;
-      justify-content: center;
+      flex-direction: column;
       width: 100vw;
       height: 100vh;
       overflow: hidden;
       font-family: ui-sans-serif, system-ui, sans-serif;
+    }
+    .drag-header {
+      position: relative;
+      width: 100%;
+      height: 45px;
+      background: rgba(0,0,0,0.85);
+      border-bottom: 1px solid rgba(255,255,255,0.15);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      cursor: move;
+      -webkit-app-region: drag;
+      user-select: none;
+      z-index: 100;
+      flex-shrink: 0;
+      transition: background 0.2s;
+    }
+    .drag-header:hover {
+      background: rgba(0,0,0,0.95);
+      border-bottom-color: rgba(255,255,255,0.25);
+    }
+    .drag-header:active {
+      cursor: grabbing;
+    }
+    .drag-header .title {
+      color: #fff;
+      font-size: 14px;
+      font-weight: bold;
+      flex: 1;
+      pointer-events: none;
+    }
+    .drag-header .header-buttons {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      -webkit-app-region: no-drag;
+    }
+    .video-container {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
     video {
       width: 100%;
@@ -1047,41 +1091,37 @@ function openHostCameraWindow(cameraStream) {
       font-size: 14px;
       z-index: 10;
       font-weight: bold;
+      display: none;
     }
-    .fullscreen-btn {
-      position: absolute;
-      top: 10px;
-      right: 50px;
-      background: rgba(0,0,0,0.7);
+    .header-btn {
+      background: rgba(255,255,255,0.1);
       color: #fff;
-      border: 1px solid rgba(255,255,255,0.3);
-      padding: 8px 12px;
-      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.2);
+      padding: 6px 12px;
+      border-radius: 4px;
       cursor: pointer;
       font-size: 12px;
-      z-index: 10;
-      transition: background 0.2s;
+      transition: all 0.2s;
+      min-width: 80px;
     }
-    .fullscreen-btn:hover {
-      background: rgba(0,0,0,0.9);
+    .header-btn:hover {
+      background: rgba(255,255,255,0.2);
+      border-color: rgba(255,255,255,0.4);
     }
     .close-btn {
-      position: absolute;
-      top: 10px;
-      right: 10px;
       background: rgba(255,106,106,0.8);
       color: #fff;
       border: none;
-      width: 30px;
-      height: 30px;
+      width: 28px;
+      height: 28px;
       border-radius: 50%;
       cursor: pointer;
-      font-size: 18px;
-      z-index: 11;
+      font-size: 16px;
       display: flex;
       align-items: center;
       justify-content: center;
       line-height: 1;
+      transition: background 0.2s;
     }
     .close-btn:hover {
       background: rgba(255,106,106,1);
@@ -1111,11 +1151,15 @@ function openHostCameraWindow(cameraStream) {
   </style>
 </head>
 <body>
-  <div class="title">호스트 카메라</div>
-  <button class="close-btn" id="closeBtn" title="닫기">×</button>
-  <video id="cameraVideo" autoplay playsinline muted></video>
-  <div class="controls">
-    <button class="control-btn" id="fullscreenBtn">⛶ 전체화면</button>
+  <div class="drag-header" id="dragHeader">
+    <div class="title">호스트 카메라 (드래그하여 이동)</div>
+    <div class="header-buttons">
+      <button class="header-btn" id="fullscreenBtn">⛶ 전체화면</button>
+      <button class="close-btn" id="closeBtn" title="닫기">×</button>
+    </div>
+  </div>
+  <div class="video-container">
+    <video id="cameraVideo" autoplay playsinline muted></video>
   </div>
 </body>
 </html>`;
@@ -1143,6 +1187,97 @@ function openHostCameraWindow(cameraStream) {
     // 창이 로드된 후 스트림 설정 및 이벤트 핸들러 추가
     const setupWindow = () => {
       setStream();
+      
+      // 드래그 기능 구현 (창 이동)
+      try {
+        const dragHeader = hostCameraWindow.document.getElementById('dragHeader');
+        if (dragHeader) {
+          let isDragging = false;
+          let startX, startY, startLeft, startTop;
+          
+          const startDrag = (clientX, clientY) => {
+            // 버튼 클릭은 드래그로 처리하지 않음
+            const target = hostCameraWindow.document.elementFromPoint(clientX, clientY);
+            if (target && (target.tagName === 'BUTTON' || target.closest('.header-buttons'))) {
+              return false;
+            }
+            
+            startX = clientX;
+            startY = clientY;
+            startLeft = hostCameraWindow.screenX;
+            startTop = hostCameraWindow.screenY;
+            isDragging = true;
+            dragHeader.style.cursor = 'grabbing';
+            dragHeader.style.opacity = '0.95';
+            return true;
+          };
+          
+          const doDrag = (clientX, clientY) => {
+            if (!isDragging) return;
+            
+            const deltaX = clientX - startX;
+            const deltaY = clientY - startY;
+            
+            try {
+              const newLeft = startLeft + deltaX;
+              const newTop = startTop + deltaY;
+              
+              // 창 위치 업데이트 (사용자 상호작용 후에만 작동)
+              hostCameraWindow.moveTo(newLeft, newTop);
+            } catch(err) {
+              // 보안 정책으로 인해 창 이동이 차단될 수 있음
+              // 이 경우 브라우저의 기본 드래그 동작을 사용
+              console.warn('창 이동 제한 (브라우저 기본 동작 사용):', err);
+            }
+          };
+          
+          const stopDrag = () => {
+            if (isDragging) {
+              isDragging = false;
+              dragHeader.style.cursor = 'move';
+              dragHeader.style.opacity = '1';
+            }
+          };
+          
+          // 마우스 이벤트
+          dragHeader.addEventListener('mousedown', (e) => {
+            if (startDrag(e.clientX, e.clientY)) {
+              e.preventDefault();
+            }
+          });
+          
+          hostCameraWindow.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+              e.preventDefault();
+              doDrag(e.clientX, e.clientY);
+            }
+          });
+          
+          hostCameraWindow.addEventListener('mouseup', stopDrag);
+          hostCameraWindow.addEventListener('mouseleave', stopDrag);
+          
+          // 터치 이벤트 지원 (모바일)
+          dragHeader.addEventListener('touchstart', (e) => {
+            const touch = e.touches[0];
+            if (startDrag(touch.clientX, touch.clientY)) {
+              e.preventDefault();
+            }
+          }, { passive: false });
+          
+          hostCameraWindow.addEventListener('touchmove', (e) => {
+            if (isDragging) {
+              e.preventDefault();
+              const touch = e.touches[0];
+              doDrag(touch.clientX, touch.clientY);
+            }
+          }, { passive: false });
+          
+          hostCameraWindow.addEventListener('touchend', stopDrag);
+          hostCameraWindow.addEventListener('touchcancel', stopDrag);
+        }
+      } catch(e) {
+        console.warn('[Host] 드래그 기능 설정 실패:', e);
+      }
       
       // 전체화면 버튼 기능
       try {
