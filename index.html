@@ -67,7 +67,7 @@
 </head>
 <body>
 <header>
-  <h1>승인제 WebRTC (방송/미팅-1.4)</h1>
+  <h1>승인제 WebRTC (방송/미팅-1.2)</h1>
   <div class="row">
     <span class="tag">P2P</span>
     <span class="tag">Firebase RTDB</span>
@@ -159,6 +159,7 @@
       <button id="muteMicBtn">마이크 음소거</button>
       <button id="muteCamBtn">카메라 끄기</button>
       <button id="shareScreenBtn" style="display:none">화면공유 시작</button>
+      <button id="openCameraWindowBtn" style="display:none" title="호스트 카메라 별도 창 열기">📹 카메라 창 열기</button>
     </div>
     
     <!-- 새 브라우저 창 열기 버튼 (별도 위치) -->
@@ -273,6 +274,7 @@ const muteMicBtn   = document.getElementById('muteMicBtn');
 const muteCamBtn   = document.getElementById('muteCamBtn');
 const shareScreenBtn = document.getElementById('shareScreenBtn');
 const openBrowserWindowBtn = document.getElementById('openBrowserWindowBtn');
+const openCameraWindowBtn = document.getElementById('openCameraWindowBtn');
 const cameraCtrl   = document.getElementById('cameraCtrl');
 const sourceWrap   = document.getElementById('sourceWrap');
 const remoteVideosGrid = document.getElementById('remoteVideosGrid');
@@ -385,6 +387,11 @@ function refreshUIByMode(){
       cameraCtrl.style.display = (sourceMode==='camera' || isRunning) ? 'flex' : 'none';
       // 방송 모드 호스트도 화면공유 버튼 표시 (카메라에서 화면공유로 전환 가능)
       shareScreenBtn.style.display = (isRunning && sourceMode==='camera') ? 'inline-block' : 'none';
+      // 호스트 카메라 별도 창 열기 버튼 (호스트만, 카메라 스트림이 있을 때)
+      const hasCameraForWindow = (isRunning && hostCameraStream) || (isRunning && sourceMode === 'camera' && localStream && localStream.getVideoTracks().length > 0);
+      if (openCameraWindowBtn) {
+        openCameraWindowBtn.style.display = hasCameraForWindow ? 'inline-block' : 'none';
+      }
       // 새 브라우저 창 열기 버튼 (호스트만, 카메라 모드이고 실행 중일 때)
       const shouldShowBtn = isRunning && comm === 'broadcast' && sourceMode === 'camera' && isHost;
       if (openBrowserWindowBtn) {
@@ -435,6 +442,36 @@ shareScreenBtn.addEventListener('click', async ()=>{
     await startScreenShare();
   }
 });
+
+// 호스트 카메라 별도 창 열기
+if (openCameraWindowBtn) {
+  openCameraWindowBtn.addEventListener('click', () => {
+    // hostCameraStream이 있으면 사용, 없으면 localStream에서 카메라 트랙 추출
+    let cameraStreamToUse = hostCameraStream;
+    
+    if (!cameraStreamToUse && localStream && sourceMode === 'camera') {
+      const videoTrack = localStream.getVideoTracks()[0];
+      if (videoTrack) {
+        cameraStreamToUse = new MediaStream([videoTrack]);
+      }
+    }
+    
+    if (!cameraStreamToUse) {
+      toast('카메라 스트림이 없습니다');
+      console.warn('[Host] 카메라 스트림 없음', { hostCameraStream, localStream, sourceMode });
+      return;
+    }
+    
+    try {
+      openHostCameraWindow(cameraStreamToUse);
+      toast('호스트 카메라 별도 창이 열렸습니다');
+      log('[Host] 호스트 카메라 별도 창 열기 버튼 클릭');
+    } catch(e) {
+      console.error('호스트 카메라 창 열기 실패:', e);
+      toast('카메라 창을 열 수 없습니다');
+    }
+  });
+}
 
 // 새 브라우저 창/탭에서 카메라 영상 열기
 if (openBrowserWindowBtn) {
@@ -1075,19 +1112,21 @@ function openHostCameraWindow(cameraStream) {
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       background: #000;
-      display: flex;
-      flex-direction: column;
+      margin: 0;
+      padding: 0;
       width: 100vw;
       height: 100vh;
       overflow: hidden;
       font-family: ui-sans-serif, system-ui, sans-serif;
     }
     .drag-header {
-      position: relative;
+      position: absolute;
+      top: 0;
+      left: 0;
       width: 100%;
-      height: 45px;
-      background: rgba(0,0,0,0.85);
-      border-bottom: 1px solid rgba(255,255,255,0.15);
+      height: 40px;
+      background: rgba(0,0,0,0);
+      border-bottom: none;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -1096,36 +1135,43 @@ function openHostCameraWindow(cameraStream) {
       -webkit-app-region: drag;
       user-select: none;
       z-index: 100;
-      flex-shrink: 0;
-      transition: background 0.2s;
+      opacity: 0;
+      transition: opacity 0.3s, background 0.3s;
+      pointer-events: none;
     }
-    .drag-header:hover {
-      background: rgba(0,0,0,0.95);
-      border-bottom-color: rgba(255,255,255,0.25);
+    body:hover .drag-header {
+      opacity: 1;
+      background: rgba(0,0,0,0.7);
+      pointer-events: auto;
     }
     .drag-header:active {
       cursor: grabbing;
     }
     .drag-header .title {
       color: #fff;
-      font-size: 14px;
+      font-size: 12px;
       font-weight: bold;
       flex: 1;
       pointer-events: none;
+      opacity: 0.9;
     }
     .drag-header .header-buttons {
       display: flex;
-      gap: 8px;
+      gap: 6px;
       align-items: center;
       -webkit-app-region: no-drag;
     }
     .video-container {
-      flex: 1;
-      position: relative;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
       overflow: hidden;
       display: flex;
       align-items: center;
       justify-content: center;
+      background: #000;
     }
     video {
       width: 100%;
@@ -1147,37 +1193,42 @@ function openHostCameraWindow(cameraStream) {
       display: none;
     }
     .header-btn {
-      background: rgba(255,255,255,0.1);
+      background: rgba(0,0,0,0.6);
       color: #fff;
-      border: 1px solid rgba(255,255,255,0.2);
-      padding: 6px 12px;
+      border: 1px solid rgba(255,255,255,0.3);
+      padding: 4px 10px;
       border-radius: 4px;
       cursor: pointer;
-      font-size: 12px;
+      font-size: 11px;
       transition: all 0.2s;
-      min-width: 80px;
+      min-width: 70px;
+      opacity: 0.9;
     }
     .header-btn:hover {
-      background: rgba(255,255,255,0.2);
-      border-color: rgba(255,255,255,0.4);
+      background: rgba(0,0,0,0.8);
+      border-color: rgba(255,255,255,0.5);
+      opacity: 1;
     }
     .close-btn {
-      background: rgba(255,106,106,0.8);
+      background: rgba(255,106,106,0.7);
       color: #fff;
       border: none;
-      width: 28px;
-      height: 28px;
+      width: 24px;
+      height: 24px;
       border-radius: 50%;
       cursor: pointer;
-      font-size: 16px;
+      font-size: 14px;
       display: flex;
       align-items: center;
       justify-content: center;
       line-height: 1;
-      transition: background 0.2s;
+      transition: all 0.2s;
+      opacity: 0.9;
     }
     .close-btn:hover {
       background: rgba(255,106,106,1);
+      opacity: 1;
+      transform: scale(1.1);
     }
     .controls {
       position: absolute;
@@ -1204,15 +1255,15 @@ function openHostCameraWindow(cameraStream) {
   </style>
 </head>
 <body>
-  <div class="drag-header" id="dragHeader">
-    <div class="title">호스트 카메라 (드래그하여 이동)</div>
-    <div class="header-buttons">
-      <button class="header-btn" id="fullscreenBtn">⛶ 전체화면</button>
-      <button class="close-btn" id="closeBtn" title="닫기">×</button>
-    </div>
-  </div>
   <div class="video-container">
     <video id="cameraVideo" autoplay playsinline muted></video>
+    <div class="drag-header" id="dragHeader">
+      <div class="title">호스트 카메라</div>
+      <div class="header-buttons">
+        <button class="header-btn" id="fullscreenBtn">⛶ 전체화면</button>
+        <button class="close-btn" id="closeBtn" title="닫기">×</button>
+      </div>
+    </div>
   </div>
 </body>
 </html>`;
