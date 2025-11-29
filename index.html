@@ -147,8 +147,8 @@
       <div id="sourceWrap">
         <label>소스 선택(방송 모드)</label>
         <div class="row" id="sourceRow">
-          <label class="row"><input type="radio" name="source" value="screen" checked> 화면공유</label>
-          <label class="row"><input type="radio" name="source" value="camera"> 카메라</label>
+          <label class="row"><input type="radio" name="source" value="screen"> 화면공유</label>
+          <label class="row"><input type="radio" name="source" value="camera" checked> 카메라</label>
         </div>
       </div>
     </div>
@@ -159,7 +159,11 @@
       <button id="muteMicBtn">마이크 음소거</button>
       <button id="muteCamBtn">카메라 끄기</button>
       <button id="shareScreenBtn" style="display:none">화면공유 시작</button>
-      <button id="openBrowserWindowBtn" style="display:none" title="다른 브라우저 창/탭에서 열기">🌐 새 창에서 열기</button>
+    </div>
+    
+    <!-- 새 브라우저 창 열기 버튼 (별도 위치) -->
+    <div class="row" style="margin-top:10px">
+      <button id="openBrowserWindowBtn" style="display:none" class="primary" title="다른 브라우저 창/탭에서 카메라 영상 열기">🌐 새 창에서 카메라 열기</button>
     </div>
 
     <div class="row" style="margin-top:10px">
@@ -290,7 +294,7 @@ const fullscreenPipCloseBtn = document.getElementById('fullscreenPipCloseBtn');
 /* ---------------- State ---------------- */
 let role = 'host';                 // 'host' | 'guest'
 let comm = 'broadcast';            // 'broadcast' | 'meeting'
-let sourceMode = 'screen';         // 방송 모드에서만 사용: 'screen' | 'camera'
+let sourceMode = 'camera';         // 방송 모드에서만 사용: 'screen' | 'camera'
 let facingMode = 'user';           // 카메라 전/후면
 let roomId = '';
 let viewerId = '';
@@ -381,8 +385,16 @@ function refreshUIByMode(){
       cameraCtrl.style.display = (sourceMode==='camera' || isRunning) ? 'flex' : 'none';
       // 방송 모드 호스트도 화면공유 버튼 표시 (카메라에서 화면공유로 전환 가능)
       shareScreenBtn.style.display = (isRunning && sourceMode==='camera') ? 'inline-block' : 'none';
-      // 새 브라우저 창 열기 버튼 (호스트만, 카메라 스트림이 있을 때)
-      openBrowserWindowBtn.style.display = (isRunning && hostCameraStream) ? 'inline-block' : 'none';
+      // 새 브라우저 창 열기 버튼 (호스트만, 카메라 모드이고 실행 중일 때)
+      const shouldShowBtn = isRunning && comm === 'broadcast' && sourceMode === 'camera' && isHost;
+      if (openBrowserWindowBtn) {
+        openBrowserWindowBtn.style.display = shouldShowBtn ? 'inline-block' : 'none';
+        if (shouldShowBtn) {
+          console.log('[UI] 새 창 열기 버튼 표시됨', { isRunning, comm, sourceMode, isHost, hostCameraStream, localStream });
+        } else {
+          console.log('[UI] 새 창 열기 버튼 숨김', { isRunning, comm, sourceMode, isHost });
+        }
+      }
     } else {
       // 방송 모드 게스트는 수신만 하므로 버튼 불필요하지만, 사용자 요청에 따라 시작 후 표시
       cameraCtrl.style.display = isRunning ? 'flex' : 'none';
@@ -427,8 +439,12 @@ shareScreenBtn.addEventListener('click', async ()=>{
 // 새 브라우저 창/탭에서 카메라 영상 열기
 if (openBrowserWindowBtn) {
   openBrowserWindowBtn.addEventListener('click', () => {
-    if (!hostCameraStream || !roomId) {
+    // hostCameraStream이 없어도 카메라 모드면 localStream 사용
+    const streamToUse = hostCameraStream || (sourceMode === 'camera' && localStream ? localStream : null);
+    
+    if (!streamToUse || !roomId) {
       toast('카메라 스트림이 없습니다');
+      console.warn('[Host] 스트림 없음', { hostCameraStream, localStream, sourceMode, roomId });
       return;
     }
     
@@ -1874,6 +1890,16 @@ async function startHost(){
       };
     }
 
+    // 카메라 모드일 때 hostCameraStream 설정 (새 브라우저 창 열기 버튼용)
+    if (comm === 'broadcast' && sourceMode === 'camera' && localStream) {
+      const cameraTrack = localStream.getVideoTracks()[0];
+      if (cameraTrack) {
+        hostCameraStream = new MediaStream([cameraTrack]);
+        log('[Host] 카메라 모드: hostCameraStream 설정됨');
+        console.log('[Host] hostCameraStream 설정 완료', hostCameraStream);
+      }
+    }
+    
     if (comm==='broadcast'){
       if (localStream) {
         player.srcObject = localStream;
@@ -1923,6 +1949,14 @@ async function startHost(){
     
     // 시작 후 UI 업데이트 (버튼 표시 등)
     refreshUIByMode();
+    
+    // hostCameraStream이 설정된 후 버튼 다시 업데이트 (카메라 모드)
+    if (comm === 'broadcast' && sourceMode === 'camera') {
+      setTimeout(() => {
+        console.log('[Host] UI 업데이트 재시도', { isRunning, comm, sourceMode, hostCameraStream, localStream });
+        refreshUIByMode();
+      }, 200);
+    }
     
     logStatus(`호스트 대기/송출 중… 방 코드: ${roomId} · 모드: ${comm}`);
     toast('게스트에게 방 코드를 공유하세요');
