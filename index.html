@@ -152,6 +152,10 @@
           <input id="chatInput" type="text" placeholder="메시지 입력..." maxlength="200" />
           <button id="chatSendBtn">전송</button>
         </div>
+        <!-- 시청자 전용 질문하기 버튼 -->
+        <div id="questionBtnWrapper" style="margin-top:8px; display:none">
+          <button id="questionBtn" class="primary" style="width:100%">❓ 송출자에게 질문하기</button>
+        </div>
       </div>
     </div>
     <hr style="border:none;border-top:1px solid #2a3a77;margin:12px 0"/>
@@ -230,6 +234,8 @@ const togglePreviewBtn = document.getElementById('togglePreviewBtn');
 const chatMessages = document.getElementById('chatMessages');
 const chatInput = document.getElementById('chatInput');
 const chatSendBtn = document.getElementById('chatSendBtn');
+const questionBtnWrapper = document.getElementById('questionBtnWrapper');
+const questionBtn = document.getElementById('questionBtn');
 const fullscreenVideo = document.getElementById('fullscreenVideo');
 const fsVideo = document.getElementById('fsVideo');
 const fsCloseBtn = document.getElementById('fsCloseBtn');
@@ -308,6 +314,11 @@ function refreshUIByMode(){
   
   if (openBrowserWindowBtn) {
     openBrowserWindowBtn.style.display = 'none';
+  }
+  
+  // 시청자 전용 질문하기 버튼 표시
+  if (questionBtnWrapper) {
+    questionBtnWrapper.style.display = (!isHost && isRunning) ? 'block' : 'none';
   }
 }
 refreshUIByMode();
@@ -680,6 +691,25 @@ chatInput.addEventListener('keypress', (e) => {
   }
 });
 
+// 시청자 질문하기 버튼
+if (questionBtn) {
+  questionBtn.addEventListener('click', () => {
+    if (!isRunning || role !== 'guest') {
+      toast('먼저 방에 참여하세요');
+      return;
+    }
+    
+    // 질문 입력 모달 표시
+    const question = prompt('송출자에게 질문을 입력하세요:');
+    if (question && question.trim()) {
+      // 채팅으로 질문 전송 (질문 표시)
+      const questionMessage = `❓ 질문: ${question.trim()}`;
+      chatInput.value = questionMessage;
+      sendChatMessage();
+      toast('질문이 전송되었습니다');
+    }
+  });
+}
 
 // 전체화면 닫기 버튼
 fsCloseBtn.addEventListener('click', () => {
