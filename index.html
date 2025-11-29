@@ -55,6 +55,9 @@
     .video-question-allow-btn:hover{background:rgba(69,160,73,1)}
     .video-question-end-btn{position:absolute;top:8px;left:8px;background:rgba(244,67,54,.8);border:none;color:#fff;padding:8px 12px;border-radius:8px;cursor:pointer;font-size:12px;z-index:2;font-weight:bold}
     .video-question-end-btn:hover{background:rgba(229,57,53,1)}
+    .question-request-indicator{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(76,175,80,.9);color:#fff;padding:12px 20px;border-radius:12px;font-size:16px;font-weight:bold;z-index:10;pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,.5)}
+    .question-request-indicator.blink{animation:blink 1s infinite}
+    @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
     .chat-container{display:flex;flex-direction:column;height:300px}
     .chat-messages{flex:1;overflow-y:auto;padding:8px;background:#0d1433;border-radius:8px;margin-bottom:8px;max-height:250px}
     .chat-message{padding:6px 8px;margin-bottom:6px;border-radius:6px;font-size:13px;word-wrap:break-word}
@@ -275,6 +278,7 @@ let hostCameraWindow = null;        // 호스트 카메라 별도 창
 let hostCameraPiPVideo = null;      // 호스트 카메라 PiP용 비디오 엘리먼트
 let guestQuestionPiPVideo = null;  // 게스트 질문 PiP용 비디오 엘리먼트
 let currentQuestionGuestId = null;  // 현재 질문 중인 게스트 ID
+let hostPiPWasActiveBeforeQuestion = false;  // 질문 시작 전 호스트 PiP 활성화 여부
 let firebaseListeners = {           // Firebase 리스너 정리를 위한 참조
   offers: null,
   answers: null,
@@ -709,7 +713,15 @@ async function sendQuestionNotification(){
   };
   
   try {
+    // 채팅 메시지 전송
     await db.ref(`rooms/${roomId}/chat`).push(chatData);
+    
+    // 질문 요청 상태를 Firebase에 저장 (호스트가 깜박임 표시를 위해)
+    await db.ref(`rooms/${roomId}/questionRequests/${myUserId}`).set({
+      timestamp: Date.now(),
+      status: 'pending'
+    });
+    
     toast('질문 알림이 전송되었습니다');
     log('[Guest] 질문 알림 전송: ' + questionMessage);
   } catch(e) {
@@ -1909,6 +1921,14 @@ function createRemoteVideoElement(vid, label=''){
   
   // 호스트 전용 버튼 추가
   if (role === 'host') {
+    // 질문 요청 표시기 (초기에는 숨김)
+    const questionIndicator = document.createElement('div');
+    questionIndicator.className = 'question-request-indicator blink';
+    questionIndicator.id = `question-indicator-${vid}`;
+    questionIndicator.textContent = '✅ 질문허락';
+    questionIndicator.style.display = 'none';
+    wrapper.appendChild(questionIndicator);
+    
     // 질문 허락 버튼
     const questionAllowBtn = document.createElement('button');
     questionAllowBtn.className = 'video-question-allow-btn';
@@ -1939,6 +1959,21 @@ function createRemoteVideoElement(vid, label=''){
       toggleGuestAudio(vid, unmuteBtn);
     };
     wrapper.appendChild(unmuteBtn);
+    
+    // 질문 요청 상태 모니터링 (Firebase 리스너)
+    if (roomId) {
+      const questionRequestRef = db.ref(`rooms/${roomId}/questionRequests/${vid}`);
+      questionRequestRef.on('value', (snap) => {
+        const data = snap.val();
+        if (data && data.status === 'pending') {
+          // 질문 요청이 있으면 표시기 표시
+          questionIndicator.style.display = 'block';
+        } else {
+          // 질문 요청이 없으면 표시기 숨김
+          questionIndicator.style.display = 'none';
+        }
+      });
+    }
   }
   
   remoteVideosGrid.appendChild(wrapper);
@@ -2031,41 +2066,31 @@ async function allowGuestQuestion(guestId) {
     
     // 호스트 카메라 PiP가 활성화되어 있는지 확인
     const hostPiPActive = document.pictureInPictureElement === hostCameraPiPVideo;
-    let hostPiPWasActive = false;
     
-    // 호스트 PiP가 활성화되어 있으면 일시적으로 종료
+    // 호스트 PiP가 활성화되어 있으면 종료하고 상태 저장 (게스트 PiP로 대체)
     if (hostPiPActive) {
-      hostPiPWasActive = true;
+      hostPiPWasActiveBeforeQuestion = true;
       try {
         await document.exitPictureInPicture();
-        log('[Host] 호스트 카메라 PiP 일시 종료 (게스트 질문을 위해)');
+        log('[Host] 호스트 카메라 PiP 종료 (게스트 PiP로 대체)');
       } catch(e) {
         console.warn('호스트 PiP 종료 실패:', e);
       }
+    } else {
+      hostPiPWasActiveBeforeQuestion = false;
     }
     
-    // 게스트 PiP 시작
+    // 게스트 PiP 시작 (호스트 PiP를 대체)
     if (!document.pictureInPictureElement || document.pictureInPictureElement !== guestQuestionPiPVideo) {
       await guestQuestionPiPVideo.requestPictureInPicture();
-      log(`[Host] 게스트 ${guestId.substring(0,6)} 질문 허락 - PiP 시작`);
-      
-      // 호스트 PiP가 있었으면 다시 시작 (게스트 PiP 밑에 배치)
-      if (hostPiPWasActive && hostCameraPiPVideo) {
-        // 약간의 지연 후 호스트 PiP 다시 시작
-        setTimeout(async () => {
-          try {
-            if (hostCameraPiPVideo.srcObject) {
-              await hostCameraPiPVideo.play();
-              await hostCameraPiPVideo.requestPictureInPicture();
-              log('[Host] 호스트 카메라 PiP 재시작 (게스트 PiP 밑에 배치)');
-              toast('호스트 카메라 PiP가 게스트 PiP 밑에 배치되었습니다. 필요시 수동으로 조정해주세요.');
-            }
-          } catch(e) {
-            console.warn('호스트 PiP 재시작 실패:', e);
-            toast('호스트 카메라 PiP 재시작 실패. 수동으로 시작해주세요.');
-          }
-        }, 500);
-      }
+      log(`[Host] 게스트 ${guestId.substring(0,6)} 질문 허락 - PiP 시작 (호스트 PiP 대체)`);
+    }
+    
+    // 질문 요청 상태 제거
+    try {
+      await db.ref(`rooms/${roomId}/questionRequests/${guestId}`).remove();
+    } catch(e) {
+      console.warn('질문 요청 상태 제거 실패:', e);
     }
     
     // 게스트 오디오 자동 활성화
@@ -2136,6 +2161,28 @@ async function endGuestQuestion(guestId) {
     if (allowBtn) allowBtn.style.display = 'block';
     if (endBtn) endBtn.style.display = 'none';
     
+    // 질문 시작 전에 호스트 PiP가 활성화되어 있었으면 다시 시작
+    if (hostPiPWasActiveBeforeQuestion && hostCameraPiPVideo && hostCameraPiPVideo.srcObject) {
+      try {
+        // 약간의 지연 후 호스트 PiP 다시 시작
+        setTimeout(async () => {
+          try {
+            await hostCameraPiPVideo.play();
+            await hostCameraPiPVideo.requestPictureInPicture();
+            log('[Host] 호스트 카메라 PiP 재시작 (질문 완료 후)');
+            toast('호스트 카메라 PiP가 다시 시작되었습니다.');
+          } catch(e) {
+            console.warn('호스트 PiP 재시작 실패:', e);
+            toast('호스트 카메라 PiP 재시작 실패. 수동으로 시작해주세요.');
+          }
+        }, 300);
+      } catch(e) {
+        console.warn('호스트 PiP 재시작 준비 실패:', e);
+      }
+    }
+    
+    // 상태 초기화
+    hostPiPWasActiveBeforeQuestion = false;
     currentQuestionGuestId = null;
     toast(`게스트 ${guestId.substring(0,6)} 질문 완료`);
     
