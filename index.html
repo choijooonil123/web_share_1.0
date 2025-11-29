@@ -730,13 +730,9 @@ function openHostCameraWindow(cameraStream, isScreenShareMode = false) {
       const availHeight = window.screen.availHeight;
       
       if (isScreenShareMode) {
-        // 화면공유 모드: 화면 크기의 약 1/6 크기로 우측 위에 배치
-        const aspectRatio = 16 / 9; // 가로 세로 비율 (16:9)
-        const baseSize = Math.min(screenWidth, screenHeight) / 6;
-        
-        // 가로 세로 비율 유지하면서 화면의 1/6 크기로 설정
-        windowHeight = Math.floor(baseSize);
-        windowWidth = Math.floor(windowHeight * aspectRatio);
+        // 화면공유 모드: 가로는 화면의 1/6, 세로는 화면의 1/4 크기로 우측 위에 배치
+        windowWidth = Math.floor(screenWidth / 6);
+        windowHeight = Math.floor(screenHeight / 4);
         
         // 우측 위에 배치 (여백 20px)
         const margin = 20;
@@ -1296,12 +1292,21 @@ async function startScreenShare(){
       } else {
         // 미팅 모드: 기존 트랙을 화면공유로 교체
         
-        // 기존 카메라 트랙을 별도 창용으로 유지
-        cameraTrackForPip = oldVideoTrack;
-        hostCameraStream = new MediaStream([cameraTrackForPip]);
-        
-        // 호스트 카메라 창 열기 (화면공유 모니터 우측 위에 1/6 크기로)
-        openHostCameraWindow(hostCameraStream, true);
+        // 기존 카메라 트랙을 중지하기 전에 별도 카메라 스트림 획득
+        try {
+          const cameraStream = await getCameraStream();
+          const cameraTrack = cameraStream.getVideoTracks()[0];
+          if (cameraTrack) {
+            hostCameraStream = new MediaStream([cameraTrack]);
+            log('[Host] 화면공유 모드: 별도 카메라 스트림 획득 완료');
+            
+            // 호스트 카메라 창 열기 (화면공유 모니터 우측 위에 가로 1/6, 세로 1/4 크기로)
+            openHostCameraWindow(hostCameraStream, true);
+          }
+        } catch(e) {
+          console.warn('[Host] 화면공유 중 카메라 스트림 획득 실패:', e);
+          log('[Host] 화면공유 중 카메라 스트림 획득 실패: ' + e.message);
+        }
         
         // 기존 트랙 제거
         oldVideoTrack.stop();
