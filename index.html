@@ -974,8 +974,35 @@ function openHostCameraWindow(cameraStream) {
   }
   
   try {
-    // 새 창 열기
-    const windowFeatures = 'width=400,height=300,left=100,top=100,resizable=yes,scrollbars=no,menubar=no,toolbar=no';
+    // 다중 디스플레이 지원: Screen API로 디스플레이 정보 확인
+    let windowLeft = 100;
+    let windowTop = 100;
+    let windowWidth = 800;
+    let windowHeight = 600;
+    
+    // Screen API 사용 가능 여부 확인
+    if (window.screen && window.screen.availWidth) {
+      // 주 디스플레이 너비를 넘어서는 위치에 창 배치 시도 (다른 디스플레이)
+      // 일반적으로 두 번째 디스플레이는 첫 번째 디스플레이 오른쪽에 배치됨
+      const primaryScreenWidth = window.screen.width;
+      const primaryScreenHeight = window.screen.height;
+      const availWidth = window.screen.availWidth;
+      const availHeight = window.screen.availHeight;
+      
+      // 두 번째 디스플레이 위치 추정 (주 디스플레이 너비 + 오프셋)
+      // 실제로는 사용자가 창을 드래그하여 다른 디스플레이로 이동 가능
+      windowLeft = primaryScreenWidth + 50; // 주 디스플레이 오른쪽에 배치 시도
+      windowTop = 50;
+      
+      // 창 크기를 더 크게 설정 (프레젠테이션용)
+      windowWidth = Math.min(1280, availWidth * 0.8);
+      windowHeight = Math.min(720, availHeight * 0.8);
+      
+      log(`[Host] 디스플레이 정보: ${primaryScreenWidth}x${primaryScreenHeight}, 창 위치: ${windowLeft},${windowTop}`);
+    }
+    
+    // 새 창 열기 (더 큰 크기, 다른 디스플레이 위치 시도)
+    const windowFeatures = `width=${windowWidth},height=${windowHeight},left=${windowLeft},top=${windowTop},resizable=yes,scrollbars=no,menubar=no,toolbar=no`;
     hostCameraWindow = window.open('', 'hostCameraWindow', windowFeatures);
     
     if (!hostCameraWindow) {
@@ -984,8 +1011,116 @@ function openHostCameraWindow(cameraStream) {
       return;
     }
     
-    // 창 HTML 작성
-    hostCameraWindow.document.write('<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>호스트 카메라</title><style>* { margin: 0; padding: 0; box-sizing: border-box; } body { background: #000; display: flex; align-items: center; justify-content: center; width: 100vw; height: 100vh; overflow: hidden; font-family: ui-sans-serif, system-ui, sans-serif; } video { width: 100%; height: 100%; object-fit: contain; background: #000; } .title { position: absolute; top: 10px; left: 10px; color: #fff; background: rgba(0,0,0,0.6); padding: 5px 10px; border-radius: 4px; font-size: 12px; z-index: 10; }</style></head><body><div class="title">호스트 카메라</div><video id="cameraVideo" autoplay playsinline muted></video></body></html>');
+    // 창 HTML 작성 (전체화면 버튼 포함, 다중 디스플레이 지원)
+    const windowHTML = `<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>호스트 카메라</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      font-family: ui-sans-serif, system-ui, sans-serif;
+    }
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: #000;
+    }
+    .title {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      color: #fff;
+      background: rgba(0,0,0,0.7);
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 14px;
+      z-index: 10;
+      font-weight: bold;
+    }
+    .fullscreen-btn {
+      position: absolute;
+      top: 10px;
+      right: 50px;
+      background: rgba(0,0,0,0.7);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.3);
+      padding: 8px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      z-index: 10;
+      transition: background 0.2s;
+    }
+    .fullscreen-btn:hover {
+      background: rgba(0,0,0,0.9);
+    }
+    .close-btn {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(255,106,106,0.8);
+      color: #fff;
+      border: none;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      cursor: pointer;
+      font-size: 18px;
+      z-index: 11;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+    }
+    .close-btn:hover {
+      background: rgba(255,106,106,1);
+    }
+    .controls {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 10px;
+      z-index: 10;
+    }
+    .control-btn {
+      background: rgba(0,0,0,0.7);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.3);
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: background 0.2s;
+    }
+    .control-btn:hover {
+      background: rgba(0,0,0,0.9);
+    }
+  </style>
+</head>
+<body>
+  <div class="title">호스트 카메라</div>
+  <button class="close-btn" id="closeBtn" title="닫기">×</button>
+  <video id="cameraVideo" autoplay playsinline muted></video>
+  <div class="controls">
+    <button class="control-btn" id="fullscreenBtn">⛶ 전체화면</button>
+  </div>
+</body>
+</html>`;
+    
+    hostCameraWindow.document.write(windowHTML);
     
     // 스트림을 새 창에 전달
     hostCameraWindow.document.close();
@@ -1005,24 +1140,72 @@ function openHostCameraWindow(cameraStream) {
       }
     };
     
-    // 창이 로드된 후 스트림 설정
-    if (hostCameraWindow.document.readyState === 'complete') {
+    // 창이 로드된 후 스트림 설정 및 이벤트 핸들러 추가
+    const setupWindow = () => {
       setStream();
+      
+      // 전체화면 버튼 기능
+      try {
+        const fullscreenBtn = hostCameraWindow.document.getElementById('fullscreenBtn');
+        if (fullscreenBtn) {
+          fullscreenBtn.addEventListener('click', () => {
+            const video = hostCameraWindow.document.getElementById('cameraVideo');
+            if (video) {
+              if (video.requestFullscreen) {
+                video.requestFullscreen();
+              } else if (video.webkitRequestFullscreen) {
+                video.webkitRequestFullscreen();
+              } else if (video.mozRequestFullScreen) {
+                video.mozRequestFullScreen();
+              } else if (video.msRequestFullscreen) {
+                video.msRequestFullscreen();
+              } else if (hostCameraWindow.document.documentElement.requestFullscreen) {
+                hostCameraWindow.document.documentElement.requestFullscreen();
+              }
+            }
+          });
+        }
+      } catch(e) {
+        console.warn('[Host] 전체화면 버튼 설정 실패:', e);
+      }
+      
+      // 닫기 버튼 기능
+      try {
+        const closeBtn = hostCameraWindow.document.getElementById('closeBtn');
+        if (closeBtn) {
+          closeBtn.addEventListener('click', () => {
+            if (hostCameraWindow && !hostCameraWindow.closed) {
+              hostCameraWindow.close();
+            }
+          });
+        }
+      } catch(e) {
+        console.warn('[Host] 닫기 버튼 설정 실패:', e);
+      }
+      
+      // 창이 닫힐 때 부모 창에 알림
+      try {
+        hostCameraWindow.addEventListener('beforeunload', function() {
+          if (window.opener && !window.opener.closed) {
+            try {
+              window.opener.postMessage({ type: 'cameraWindowClosed' }, '*');
+            } catch(err) {}
+          }
+        });
+      } catch(e) {
+        console.warn('[Host] beforeunload 이벤트 설정 실패:', e);
+      }
+    };
+    
+    // 창이 로드된 후 설정
+    if (hostCameraWindow.document.readyState === 'complete') {
+      setupWindow();
     } else {
-      hostCameraWindow.addEventListener('load', setStream);
+      hostCameraWindow.addEventListener('load', setupWindow);
     }
     
     // 타임아웃으로도 시도 (안전장치)
-    setTimeout(setStream, 200);
-    
-    // 창이 닫힐 때 부모 창에 알림 (스크립트 동적 추가)
-    try {
-      const script = hostCameraWindow.document.createElement('script');
-      script.textContent = 'window.addEventListener("beforeunload", function() { if (window.opener && !window.opener.closed) { try { window.opener.postMessage({ type: "cameraWindowClosed" }, "*"); } catch(err) {} } });';
-      hostCameraWindow.document.body.appendChild(script);
-    } catch(e) {
-      console.warn('[Host] 스크립트 추가 실패:', e);
-    }
+    setTimeout(setupWindow, 200);
     
     // 창이 닫힐 때 감지
     const checkClosed = setInterval(() => {
