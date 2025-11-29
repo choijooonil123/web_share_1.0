@@ -58,7 +58,7 @@
 </head>
 <body>
 <header>
-  <h1>승인제 WebRTC (방송/미팅-1.2)</h1>
+  <h1>승인제 WebRTC (방송/미팅-2.0)</h1>
   <div class="row">
     <span class="tag">P2P</span>
     <span class="tag">Firebase RTDB</span>
@@ -2013,7 +2013,7 @@ async function acceptGuest(vid, data, li){
 
 async function startGuest(){
   try {
-    roomId = (roomIdInput.value||'').replace(/\s+/g,''); if(!roomId){ alert('방 코드를 입력하세요.'); return; }
+    roomId = (roomIdInput.value||'').replace(/\s+/g,''); if(!roomId){ roomId=generateRoomId(); roomIdInput.value=roomId; }
     viewerId = randomId(8);
     myUserId = viewerId;
     pc = createPeer();
