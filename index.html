@@ -472,8 +472,9 @@ function refreshUIByMode(){
   // 교수 전용 UI 요소
   if (openCameraPiPBtn) {
     const isPiPSupported = document.pictureInPictureEnabled !== undefined;
-    // 예전처럼: 교수라면 방 시작 전 초기 화면에서도 PiP 버튼이 항상 보이도록 함
-    openCameraPiPBtn.style.display = (isHost && isPiPSupported) ? 'inline-block' : 'none';
+    // 요청: 카메라 PiP 버튼은 "입장 후" 화면에서만 보이도록 (isRunning일 때만)
+    // 교수이고, 방이 시작되었고, PiP를 지원할 때에만 표시
+    openCameraPiPBtn.style.display = (isHost && isRunning && isPiPSupported) ? 'inline-block' : 'none';
   }
   if (muteMicBtn) muteMicBtn.style.display = 'none'; // 기존 마이크 버튼은 숨김 (audioToggleBtn 사용)
   if (openBrowserWindowBtn) openBrowserWindowBtn.style.display = 'none';
