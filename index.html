@@ -29,7 +29,7 @@
     footer{padding:10px 16px;color:#a7b3d4;font-size:12px;text-align:center}
     .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
     .grid-2h{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
-    .meeting-grid{display:grid;grid-template-columns:repeat(auto-fill, minmax(225px, 1fr));gap:8px;margin-top:10px}
+    .meeting-grid{display:grid;grid-template-columns:repeat(auto-fill, minmax(225px, 1fr));gap:8px}
     .remote-video-wrapper{position:relative;min-height:150px}
     .remote-video-wrapper small{position:absolute;top:4px;left:4px;background:rgba(0,0,0,.6);padding:3px 6px;border-radius:4px;z-index:1;font-size:11px}
     .remote-video-wrapper video{width:100%;height:auto;min-height:150px;background:#000;border-radius:8px;object-fit:cover}
@@ -92,8 +92,6 @@
 
 <main>
   <section class="card">
-    <h2 style="margin:0 0 8px 0">라이브</h2>
-
     <!-- 미팅 모드: 다자간 비디오 그리드 -->
     <div id="meetingVideos">
       <div class="meeting-grid" id="remoteVideosGrid">
@@ -103,11 +101,7 @@
           <video id="localPreview" autoplay playsinline webkit-playsinline muted controls></video>
         </div>
       </div>
-      <div class="row" style="margin-top:8px">
-        <button id="togglePreviewBtn">내 화면 숨기기</button>
-      </div>
     </div>
-
 
     <!-- 전체화면 비디오 -->
     <div id="fullscreenVideo" class="fullscreen-video">
@@ -119,46 +113,47 @@
 
     <audio id="audiomirror" autoplay playsinline webkit-playsinline style="display:none"></audio>
 
-    <div class="grid-2" style="margin-top:10px">
+    <!-- 컨트롤 영역: 밀도있게 배치 -->
+    <div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start">
       <div>
-        <label>역할</label>
-        <div class="row">
-          <label class="row"><input type="radio" name="role" value="host" checked> 송출자(호스트)</label>
-          <label class="row"><input type="radio" name="role" value="guest"> 시청자/게스트</label>
+        <label style="margin-top:0;margin-bottom:6px">역할</label>
+        <div class="row" style="gap:12px">
+          <label class="row" style="margin:0"><input type="radio" name="role" value="host" checked> 송출자(호스트)</label>
+          <label class="row" style="margin:0"><input type="radio" name="role" value="guest"> 시청자/게스트</label>
         </div>
       </div>
       <div>
-        <label>방 코드(Room ID)</label>
-        <input id="roomId" type="text" placeholder="예: RM-20241225" />
-        <small class="hint">직접 입력 또는 자동 생성 (RM-날짜 형식)</small>
+        <label style="margin-top:0;margin-bottom:6px">방 코드(Room ID)</label>
+        <div class="row" style="gap:6px;margin-top:0">
+          <input id="roomId" type="text" placeholder="예: RM-20241225" style="flex:1" />
+          <button id="genRoom" style="white-space:nowrap">자동생성</button>
+        </div>
       </div>
     </div>
 
-
-    <!-- 카메라 제어 -->
-    <div class="row" id="cameraCtrl" style="margin-top:10px; display:none">
+    <!-- 카메라 제어 및 주요 버튼 -->
+    <div class="row" id="cameraCtrl" style="margin-top:10px; display:none;gap:6px;flex-wrap:wrap">
       <button id="muteMicBtn">마이크 음소거</button>
       <button id="muteCamBtn">카메라 끄기</button>
       <button id="shareScreenBtn" style="display:none">화면공유 시작</button>
       <button id="openCameraPiPBtn" style="display:none" title="호스트 카메라 Picture-in-Picture 모드">🖼️ 카메라 PiP</button>
-    </div>
-    
-    <!-- 새 브라우저 창 열기 버튼 (별도 위치) -->
-    <div class="row" style="margin-top:10px">
-      <button id="openBrowserWindowBtn" style="display:none" class="primary" title="다른 브라우저 창/탭에서 카메라 영상 열기">🌐 새 창에서 카메라 열기</button>
+      <button id="openBrowserWindowBtn" style="display:none" class="primary" title="다른 브라우저 창/탭에서 카메라 영상 열기">🌐 새 창</button>
+      <button id="togglePreviewBtn" style="display:none">내 화면 숨기기</button>
     </div>
 
-    <div class="row" style="margin-top:10px">
-      <button id="genRoom">방 코드 자동생성</button>
+    <!-- 시작/종료 버튼 -->
+    <div class="row" style="margin-top:10px;gap:8px">
       <button class="primary" id="startBtn">시작</button>
       <button class="danger" id="stopBtn" disabled>종료</button>
       <button id="unmuteBtn" style="display:none">🔊 소리 켜기</button>
     </div>
 
-
-    <div style="margin-top:6px"><small id="status" class="muted">대기 중…</small></div>
-    <div id="presenterHints" style="margin-top:12px;display:none">
-      <small class="hint">* iPad는 첫 재생 시 🔊 버튼(또는 화면 탭)으로 음소거 해제가 필요할 수 있습니다.</small>
+    <!-- 상태 및 힌트 -->
+    <div style="margin-top:8px">
+      <small id="status" class="muted">대기 중…</small>
+      <div id="presenterHints" style="margin-top:6px;display:none">
+        <small class="hint">* iPad는 첫 재생 시 🔊 버튼(또는 화면 탭)으로 음소거 해제가 필요할 수 있습니다.</small>
+      </div>
     </div>
   </section>
 
