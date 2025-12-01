@@ -71,6 +71,8 @@
     .modal{position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,.7);z-index:3000;display:none;align-items:center;justify-content:center}
     .modal.show{display:flex}
     .modal-content{background:rgba(16,24,58,.95);border:1px solid #22306b;border-radius:16px;padding:20px;max-width:500px;max-height:80vh;width:90%;overflow-y:auto;box-shadow:0 8px 30px rgba(0,0,0,.5)}
+    #pendingModal{justify-content:flex-end;align-items:flex-start;padding:20px}
+    #pendingModal .modal-content{margin-right:0;margin-top:20px;max-width:400px;width:auto;min-width:300px}
     .modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #2a3a77}
     .modal-header h3{margin:0;font-size:18px}
     .modal-close{width:32px;height:32px;border-radius:50%;border:none;background:rgba(255,106,106,.8);color:#fff;cursor:pointer;font-size:20px;display:flex;align-items:center;justify-content:center}
@@ -476,9 +478,10 @@ function refreshUIByMode(){
   if (openBrowserWindowBtn) openBrowserWindowBtn.style.display = 'none';
   if (togglePreviewBtn) togglePreviewBtn.style.display = isRunning ? 'inline-block' : 'none';
   
-  // 게스트 전용 UI 요소
+  // 게스트 전용 UI 요소 (교수가 방을 만든 후에도 실제로는 교수이므로 peerConnections 확인)
   if (questionBtnWrapper) {
-    questionBtnWrapper.style.display = (isGuest && isRunning) ? 'block' : 'none';
+    const isActuallyGuest = isGuest && isRunning && !(isRunning && peerConnections.size > 0);
+    questionBtnWrapper.style.display = isActuallyGuest ? 'block' : 'none';
   }
 
   if (presenterHints) presenterHints.style.display = (isHost && !isRunning) ? 'block' : 'none';
@@ -2221,9 +2224,10 @@ function createRemoteVideoElement(vid, label=''){
       fsVideo.srcObject = video.srcObject;
       fullscreenVideo.classList.add('show');
       
-      // 시청자일 때만 전체화면 질문 버튼 표시
+      // 시청자일 때만 전체화면 질문 버튼 표시 (교수가 방을 만든 후에도 실제로는 교수이므로 peerConnections 확인)
       if (fullscreenQuestionBtn) {
-        fullscreenQuestionBtn.style.display = (role === 'guest') ? 'block' : 'none';
+        const isActuallyGuest = role === 'guest' && isRunning && !(isRunning && peerConnections.size > 0);
+        fullscreenQuestionBtn.style.display = isActuallyGuest ? 'block' : 'none';
       }
       
       fsVideo.play().catch(e => {
@@ -2240,8 +2244,9 @@ function createRemoteVideoElement(vid, label=''){
   wrapper.appendChild(video);
   wrapper.appendChild(fullscreenBtn);
   
-  // 시청자(게스트) 전용 질문 버튼 추가
-  if (role === 'guest') {
+  // 시청자(게스트) 전용 질문 버튼 추가 (교수가 방을 만든 후에도 실제로는 교수이므로 peerConnections 확인)
+  const isActuallyGuest = role === 'guest' && !(isRunning && peerConnections.size > 0);
+  if (isActuallyGuest) {
     const questionBtn = document.createElement('button');
     questionBtn.className = 'video-question-btn';
     questionBtn.textContent = '❓ 질문하기';
