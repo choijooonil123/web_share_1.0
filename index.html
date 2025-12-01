@@ -108,8 +108,8 @@
     <button id="muteCamBtn" style="display:none;padding:6px 12px;font-size:13px">📹 카메라 ON</button>
     <button id="shareScreenBtn" style="display:none;padding:6px 12px;font-size:13px">🖥️ 화면공유 ON</button>
     <button id="openCameraPiPBtn" style="display:none;padding:6px 12px;font-size:13px" title="호스트 카메라 Picture-in-Picture 모드">🖼️ PiP</button>
-    <button class="primary" id="startBtn" style="padding:6px 12px;font-size:13px;cursor:pointer">입실</button>
-    <button class="danger" id="stopBtn" disabled style="padding:6px 12px;font-size:13px;cursor:pointer">퇴실</button>
+    <button class="primary" id="startBtn" type="button" style="padding:6px 12px;font-size:13px;cursor:pointer;position:relative;z-index:10">입실</button>
+    <button class="danger" id="stopBtn" type="button" disabled style="padding:6px 12px;font-size:13px;cursor:pointer;position:relative;z-index:10">퇴실</button>
   </div>
   
   <div class="row" style="gap:6px;align-items:center;flex-wrap:wrap">
@@ -3121,13 +3121,14 @@ async function startGuest(){
 }
 
 /* ---------------- Controls ---------------- */
+// 입실 버튼 이벤트 리스너
 if (startBtn) {
-  startBtn.addEventListener('click', async ()=>{
+  startBtn.onclick = async function() {
     try{
-      console.log('[Button] 입실 버튼 클릭됨', { role, isRunning });
-      if (startBtn.disabled) {
+      console.log('[Button] 입실 버튼 클릭됨', { role, isRunning, disabled: this.disabled });
+      if (this.disabled) {
         console.log('[Button] 입실 버튼이 비활성화되어 있음');
-        return;
+        return false;
       }
       if (role==='host') {
         await startHost();
@@ -3138,22 +3139,32 @@ if (startBtn) {
       console.error('[Button] 입실 실패:', e);
       alert('입실 실패: '+e.message); 
     }
-  });
+    return false;
+  };
+  console.log('[Button] 입실 버튼 이벤트 리스너 등록됨');
+} else {
+  console.error('[Button] 입실 버튼을 찾을 수 없음');
 }
+
+// 퇴실 버튼 이벤트 리스너
 if (stopBtn) {
-  stopBtn.addEventListener('click', async ()=>{
+  stopBtn.onclick = async function() {
     try{
-      console.log('[Button] 퇴실 버튼 클릭됨');
-      if (stopBtn.disabled) {
+      console.log('[Button] 퇴실 버튼 클릭됨', { disabled: this.disabled });
+      if (this.disabled) {
         console.log('[Button] 퇴실 버튼이 비활성화되어 있음');
-        return;
+        return false;
       }
       await cleanup();
     }catch(e){
       console.error('[Button] 퇴실 실패:', e);
       alert('퇴실 실패: '+e.message);
     }
-  });
+    return false;
+  };
+  console.log('[Button] 퇴실 버튼 이벤트 리스너 등록됨');
+} else {
+  console.error('[Button] 퇴실 버튼을 찾을 수 없음');
 }
 if (genRoom && roomIdInput) genRoom.addEventListener('click', ()=>{ roomIdInput.value = generateRoomId(); });
 window.addEventListener('DOMContentLoaded', ()=>{
