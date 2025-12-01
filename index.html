@@ -3295,7 +3295,8 @@ async function startGuest(){
       
       // 학생이 입실 허용되면 교수 화면을 전체화면으로 표시
       if (fullscreenVideo && fsVideo) {
-        if (needsUpdate || fsVideo.srcObject !== stream) {
+        // 미팅 모드에서는 새 트랙이 들어올 때마다 전체화면 소스도 업데이트
+        if (fsVideo.srcObject !== stream) {
           fsVideo.srcObject = stream;
         }
         fullscreenVideo.classList.add('show');
