@@ -1800,9 +1800,26 @@ async function startScreenShare(){
         peerConnections.forEach((_pc, vid) => {
           const sender = _pc.getSenders().find(s => s.track && s.track.kind === 'video');
           if (sender && screenTrack) {
-            sender.replaceTrack(screenTrack).catch(e => {
-              console.warn(`[교수] 화면공유 트랙 교체 실패 (${vid}):`, e);
-            });
+            // 기존 트랙이 있으면 교체, 없으면 추가
+            if (sender.track) {
+              sender.replaceTrack(screenTrack).then(() => {
+                log(`[교수] 학생 ${vid}에게 화면공유 트랙 교체 완료`);
+              }).catch(e => {
+                console.warn(`[교수] 화면공유 트랙 교체 실패 (${vid}):`, e);
+                // 교체 실패 시 재시도: 트랙 제거 후 추가
+                try {
+                  sender.track.stop();
+                  _pc.addTrack(screenTrack, new MediaStream([screenTrack]));
+                  log(`[교수] 학생 ${vid}에게 화면공유 트랙 재시도 완료`);
+                } catch(e2) {
+                  console.error(`[교수] 화면공유 트랙 재시도 실패 (${vid}):`, e2);
+                }
+              });
+            } else {
+              // 트랙이 없으면 추가
+              _pc.addTrack(screenTrack, new MediaStream([screenTrack]));
+              log(`[교수] 학생 ${vid}에게 화면공유 트랙 추가 완료`);
+            }
           }
         });
       }
@@ -3088,30 +3105,116 @@ async function startGuest(){
         videoEl = createRemoteVideoElement(hostVideoId, '교수');
         remoteVideos.set(hostVideoId, videoEl);
       }
-      if (videoEl.srcObject !== stream) {
-        videoEl.srcObject = stream;
-        (async ()=>{ try{ 
-          videoEl.setAttribute('playsinline',''); 
-          videoEl.setAttribute('webkit-playsinline',''); 
-          await videoEl.play(); 
-        }catch(e){} })();
-        audioMirror.srcObject = stream;
+      
+      // 스트림이 변경되었거나 트랙이 업데이트된 경우 업데이트
+      const currentStream = videoEl.srcObject;
+      const isScreenTrack = track.label && (
+        track.label.toLowerCase().includes('screen') || 
+        track.label.toLowerCase().includes('화면') ||
+        track.label.toLowerCase().includes('display') ||
+        track.label.toLowerCase().includes('monitor') ||
+        track.label.toLowerCase().includes('window')
+      );
+      
+      // 기존 스트림의 비디오 트랙 확인
+      let needsUpdate = false;
+      if (!currentStream || currentStream !== stream) {
+        // 새로운 스트림인 경우
+        needsUpdate = true;
+      } else {
+        // 기존 스트림이지만 트랙이 변경되었는지 확인
+        const existingTracks = currentStream.getVideoTracks();
+        const hasThisTrack = existingTracks.some(t => t.id === track.id);
+        const hasDifferentTrack = existingTracks.some(t => t.id !== track.id && t.readyState === 'live');
         
-        // 학생이 입실 허용되면 교수 화면을 전체화면으로 표시
-        if (fullscreenVideo && fsVideo) {
-          fsVideo.srcObject = stream;
-          fullscreenVideo.classList.add('show');
-          (async () => {
-            try {
-              fsVideo.setAttribute('playsinline','');
-              fsVideo.setAttribute('webkit-playsinline','');
-              await fsVideo.play();
-              log('[Guest] 교수 화면 전체화면으로 표시');
-            } catch(e) {
-              console.warn('전체화면 재생 실패:', e);
-            }
-          })();
+        if (!hasThisTrack || hasDifferentTrack) {
+          // 새 트랙이 없거나 다른 트랙이 있는 경우 업데이트 필요
+          needsUpdate = true;
+          
+          // 기존 비디오 트랙 제거 (화면공유로 교체되는 경우)
+          if (isScreenTrack && hasDifferentTrack) {
+            existingTracks.forEach(t => {
+              if (t.id !== track.id && t.readyState === 'live') {
+                currentStream.removeTrack(t);
+                t.stop();
+              }
+            });
+          }
+          
+          // 새 트랙 추가
+          if (!hasThisTrack) {
+            currentStream.addTrack(track);
+          }
         }
+      }
+      
+      // 비디오 엘리먼트 업데이트 및 재생
+      if (needsUpdate) {
+        // 비디오 엘리먼트 강제 업데이트
+        const wasPlaying = !videoEl.paused;
+        videoEl.srcObject = null;
+        videoEl.srcObject = stream;
+        
+        // 비디오 재생
+        (async ()=>{ 
+          try{ 
+            videoEl.setAttribute('playsinline',''); 
+            videoEl.setAttribute('webkit-playsinline',''); 
+            await videoEl.play();
+            if (isScreenTrack) {
+              log('[Guest] 교수 화면공유 수신 및 표시');
+            } else {
+              log('[Guest] 교수 비디오 트랙 업데이트');
+            }
+          }catch(e){
+            console.warn('[Guest] 비디오 재생 실패:', e);
+            // 재시도
+            setTimeout(async () => {
+              try {
+                await videoEl.play();
+              } catch(e2) {
+                console.warn('[Guest] 비디오 재생 재시도 실패:', e2);
+              }
+            }, 500);
+          }
+        })();
+      } else {
+        // 트랙이 이미 있는 경우에도 재생 상태 확인
+        if (videoEl.paused) {
+          videoEl.play().catch(e => {
+            console.warn('[Guest] 비디오 재생 실패:', e);
+          });
+        }
+      }
+      
+      audioMirror.srcObject = stream;
+      
+      // 학생이 입실 허용되면 교수 화면을 전체화면으로 표시
+      if (fullscreenVideo && fsVideo) {
+        if (needsUpdate || fsVideo.srcObject !== stream) {
+          fsVideo.srcObject = stream;
+        }
+        fullscreenVideo.classList.add('show');
+        (async () => {
+          try {
+            fsVideo.setAttribute('playsinline','');
+            fsVideo.setAttribute('webkit-playsinline','');
+            await fsVideo.play();
+            if (isScreenTrack) {
+              log('[Guest] 교수 화면공유 전체화면으로 표시');
+            }
+          } catch(e) {
+            console.warn('전체화면 재생 실패:', e);
+            // 재시도
+            setTimeout(async () => {
+              try {
+                await fsVideo.play();
+              } catch(e2) {
+                console.warn('전체화면 재생 재시도 실패:', e2);
+              }
+            }, 500);
+          }
+        })();
       }
       if (isiOS) showIOSUnmuteOverlayIfNeeded(); else unmuteBtn.style.display='inline-block';
     }
