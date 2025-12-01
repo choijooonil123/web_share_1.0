@@ -9,9 +9,15 @@
     *{box-sizing:border-box}
     html,body{overflow:visible;min-width:100vw;min-height:100vh}
     body{margin:0;font-family:ui-sans-serif,system-ui,Apple SD Gothic Neo,Noto Sans KR,Segoe UI,Roboto,sans-serif;color:var(--ink);background:radial-gradient(1000px 700px at 80% -10%,#1a2650 0%,#0b1020 45%)}
-    header{padding:18px 20px 10px;display:flex;gap:12px;align-items:center;justify-content:space-between}
+    header{padding:10px 20px;display:flex;flex-direction:column;gap:8px;position:relative;min-height:80px}
+    .header-top{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+    .header-left{display:flex;flex-direction:column;gap:4px}
+    .header-controls{display:flex;align-items:center;gap:12px;flex:1;justify-content:flex-start;flex-wrap:wrap}
+    .header-right{display:flex;align-items:center;gap:8px;margin-left:auto}
+    .header-status-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+    .control-buttons{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:1000;background:rgba(16,24,58,.9);padding:10px;border-radius:12px;border:1px solid #2a3a77}
     h1{margin:0;font-size:18px}
-    main{padding:16px;display:grid;gap:16px;grid-template-columns:1fr 200px}
+    main{padding:16px}
     .card{background:rgba(16,24,58,.8);border:1px solid #22306b;border-radius:16px;padding:14px;box-shadow:0 8px 30px rgba(0,0,0,.25)}
     label{display:block;margin-top:8px;font-size:14px;color:var(--muted)}
     input[type="text"]{width:100%;padding:10px;border-radius:12px;border:1px solid #2a3a77;background:#0d1433;color:#eaf0ff}
@@ -75,15 +81,41 @@
     .modal-header h3{margin:0;font-size:18px}
     .modal-close{width:32px;height:32px;border-radius:50%;border:none;background:rgba(255,106,106,.8);color:#fff;cursor:pointer;font-size:20px;display:flex;align-items:center;justify-content:center}
     .modal-close:hover{background:rgba(255,74,74,1)}
-    #info{position:fixed;top:10px;right:10px;font-size:12px;color:var(--muted);padding:8px 12px;background:rgba(16,24,58,.8);border-radius:8px;border:1px solid #2a3a77;z-index:1000}
-    #status{position:fixed;top:50px;right:10px;font-size:12px;color:var(--muted);padding:8px 12px;background:rgba(16,24,58,.8);border-radius:8px;border:1px solid #2a3a77;z-index:1000}
+    #info{position:fixed;top:10px;right:10px;font-size:11px;color:var(--muted);padding:6px 10px;background:rgba(16,24,58,.8);border-radius:8px;border:1px solid #2a3a77;z-index:1000}
     #logBtn{position:fixed;bottom:20px;right:20px;width:50px;height:50px;border-radius:50%;border:none;background:rgba(106,166,255,.8);color:#fff;cursor:pointer;font-size:20px;z-index:1000;box-shadow:0 4px 12px rgba(0,0,0,.3)}
     #logBtn:hover{background:rgba(106,166,255,1)}
   </style>
 </head>
 <body>
 <header>
-  <div id="info" class="hint">-</div>
+  <div class="header-top">
+    <div class="header-left">
+      <h1 style="margin:0;font-size:18px">김천대 본관 6층 사무엘실</h1>
+      <div id="status" class="muted" style="font-size:12px">대기 중…</div>
+    </div>
+    <div class="header-controls">
+      <div>
+        <label style="font-size:12px;margin:0">역할</label>
+        <div class="row" style="gap:4px">
+          <label class="row" style="margin:0;gap:4px"><input type="radio" name="role" value="host" checked> 교수</label>
+          <label class="row" style="margin:0;gap:4px"><input type="radio" name="role" value="guest"> 학생</label>
+        </div>
+      </div>
+      <div>
+        <label style="font-size:12px;margin:0">이름</label>
+        <input id="userName" type="text" placeholder="이름 입력" style="width:120px;padding:6px 8px;font-size:12px" />
+      </div>
+      <div>
+        <label style="font-size:12px;margin:0">방 코드</label>
+        <input id="roomId" type="text" placeholder="예: rm-k3G7a9fQ2" style="width:150px;padding:6px 8px;font-size:12px" />
+      </div>
+    </div>
+    <div class="header-right">
+      <button class="primary" id="startBtn" style="padding:8px 16px">입실</button>
+      <button class="danger" id="stopBtn" disabled style="padding:8px 16px">퇴실</button>
+    </div>
+  </div>
+  <div id="info" class="hint" style="font-size:11px">-</div>
 </header>
 
 <main>
@@ -110,58 +142,17 @@
     <audio id="audiomirror" autoplay playsinline webkit-playsinline style="display:none"></audio>
   </section>
 
-  <aside class="card">
-    <h1 style="margin:0;font-size:18px;margin-bottom:12px">김천대 본관 6층 사무엘실</h1>
-    
-    <div class="grid-2" style="margin-top:10px">
-      <div>
-        <label>역할</label>
-        <div class="row">
-          <label class="row"><input type="radio" name="role" value="host" checked> 교수</label>
-          <label class="row"><input type="radio" name="role" value="guest"> 학생</label>
-        </div>
-      </div>
-      <div>
-        <label>방 코드(Room ID)</label>
-        <input id="roomId" type="text" placeholder="예: rm-k3G7a9fQ2" />
-        <small class="hint">직접 입력 또는 자동 생성</small>
-      </div>
-    </div>
-
-    <div class="row" style="margin-top:10px">
-      <button class="primary" id="startBtn">입실</button>
-      <button class="danger" id="stopBtn" disabled>퇴실</button>
-      <button id="unmuteBtn" style="display:none">🔊 소리 켜기</button>
-    </div>
-
-    <!-- 카메라 제어 -->
-    <div class="row" id="cameraCtrl" style="margin-top:10px; display:none">
-      <button id="muteMicBtn">마이크 음소거</button>
-      <button id="muteCamBtn">카메라 끄기</button>
-    </div>
-
-    <!-- 추가 컨트롤 버튼 -->
-    <div class="row" style="margin-top:10px" id="additionalControls">
-      <button id="shareScreenBtn" style="display:none">화면공유</button>
-      <button id="openBrowserWindowBtn" style="display:none">브라우저 창 열기</button>
-      <button id="openCameraPiPBtn" style="display:none">카메라 PiP</button>
-      <button id="togglePreviewBtn" style="display:none">미리보기 토글</button>
-    </div>
-
-    <!-- 오디오 증폭 -->
-    <div id="gainRow" class="row" style="margin-top:8px; display:none">
-      <small class="muted">오디오 증폭:</small>
-      <input id="gainSlider" type="range" min="1" max="3" step="0.1" value="2" />
-      <small class="muted"><span id="gainVal">2.0</span>x</small>
-    </div>
-
-    <div id="status" class="muted" style="position:fixed;top:50px;right:10px;font-size:12px;padding:8px 12px;background:rgba(16,24,58,.8);border-radius:8px;border:1px solid #2a3a77;z-index:1000">대기 중…</div>
-    <hr style="border:none;border-top:1px solid #2a3a77;margin:12px 0"/>
-    <div>
-      <h3 style="margin:0 0 8px 0;font-size:14px">채팅</h3>
-      <button id="showChatBtn" class="primary" style="width:100%;font-size:12px;padding:8px">채팅 열기</button>
-    </div>
-  </aside>
+  <!-- 입실 후 컨트롤 버튼들 (화면 하단 중앙) -->
+  <div class="control-buttons" id="controlButtons" style="display:none">
+    <button id="muteMicBtn" style="display:none">마이크 음소거</button>
+    <button id="muteCamBtn" style="display:none">카메라 끄기</button>
+    <button id="shareScreenBtn" style="display:none">화면공유</button>
+    <button id="openCameraPiPBtn" style="display:none">카메라 PiP</button>
+    <button id="unmuteBtn" style="display:none">🔊 소리 켜기</button>
+  </div>
+  
+  <!-- 채팅 버튼 (고정 위치) -->
+  <button id="showChatBtn" style="position:fixed;bottom:20px;right:20px;width:50px;height:50px;border-radius:50%;border:none;background:rgba(106,166,255,.8);color:#fff;cursor:pointer;font-size:20px;z-index:1000;box-shadow:0 4px 12px rgba(0,0,0,.3)">💬</button>
 </main>
 
 <div id="toast"></div>
@@ -245,7 +236,9 @@ const meetingVideos = document.getElementById('meetingVideos');   // 미팅 모�
 const localPreview = document.getElementById('localPreview');
 const audioMirror = document.getElementById('audiomirror');
 const roomIdInput = document.getElementById('roomId');
+const userNameInput = document.getElementById('userName');
 const statusEl = document.getElementById('status');
+const controlButtons = document.getElementById('controlButtons');
 const pendingEl = document.getElementById('pending');
 const infoEl = document.getElementById('info');
 const logEl = document.getElementById('log');
@@ -412,7 +405,19 @@ function refreshUIByMode(){
   
   // 미팅 모드: 시작 후에는 항상 카메라/마이크 컨트롤 표시
   if (meetingVideos) meetingVideos.classList.remove('hidden');
-  if (cameraCtrl) cameraCtrl.style.display = isRunning ? 'flex' : 'none';
+  
+  // 입실 후 컨트롤 버튼 영역 표시
+  if (controlButtons) {
+    controlButtons.style.display = isRunning ? 'flex' : 'none';
+  }
+  
+  // 마이크/카메라 버튼 표시
+  if (muteMicBtn) {
+    muteMicBtn.style.display = isRunning ? 'inline-block' : 'none';
+  }
+  if (muteCamBtn) {
+    muteCamBtn.style.display = isRunning ? 'inline-block' : 'none';
+  }
   
   // 화면공유 버튼: 호스트와 게스트 모두 시작 후에 표시
   if (shareScreenBtn) {
@@ -428,7 +433,7 @@ function refreshUIByMode(){
   if (isHost && openCameraPiPBtn) {
     const hasCameraForPiP = (isRunning && hostCameraStream) || (isRunning && localStream && localStream.getVideoTracks().length > 0);
     const isPiPSupported = document.pictureInPictureEnabled !== undefined;
-    openCameraPiPBtn.style.display = (hasCameraForPiP && isPiPSupported) ? 'inline-block' : 'none';
+    openCameraPiPBtn.style.display = (hasCameraForPiP && isPiPSupported && isRunning) ? 'inline-block' : 'none';
   }
   
   if (openBrowserWindowBtn) {
