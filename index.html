@@ -885,8 +885,10 @@ function addChatMessage(senderId, senderName, message, timestamp, isOwn = false)
   chatMessages.appendChild(msgDiv);
   chatMessages.scrollTop = chatMessages.scrollHeight;
   
-  // 새 메시지가 오면 채팅 모달 자동 표시 (자신이 보낸 메시지가 아닐 때만)
-  if (!isOwn) {
+  // 새 메시지가 오면 채팅 모달 자동 표시 (자신이 보낸 메시지가 아니고, 질문 메시지가 아닐 때만)
+  // 질문 메시지는 채팅창에만 표시하고 모달은 띄우지 않음
+  const isQuestionMessage = message.includes('질문있음') || message.includes('질문');
+  if (!isOwn && !isQuestionMessage) {
     showChatModal();
   }
   
@@ -2232,13 +2234,14 @@ function createRemoteVideoElement(vid, label=''){
     wrapper.appendChild(questionBtn);
   }
   
-  // 호스트 전용 버튼 추가
-  if (role === 'host') {
+  // 교수 전용 버튼 추가 (교수가 방을 만든 후에도 실제로는 교수이므로 isRunning 상태 확인)
+  const isActuallyHost = isRunning && peerConnections.size > 0;
+  if (role === 'host' || isActuallyHost) {
     // 질문 요청 표시기 (초기에는 숨김)
     const questionIndicator = document.createElement('div');
     questionIndicator.className = 'question-request-indicator blink';
     questionIndicator.id = `question-indicator-${vid}`;
-    questionIndicator.textContent = '✅ 질문허락';
+    questionIndicator.textContent = '❓ 질문하기';
     questionIndicator.style.display = 'none';
     wrapper.appendChild(questionIndicator);
     
