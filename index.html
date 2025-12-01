@@ -11,7 +11,7 @@
     body{margin:0;font-family:ui-sans-serif,system-ui,Apple SD Gothic Neo,Noto Sans KR,Segoe UI,Roboto,sans-serif;color:var(--ink);background:radial-gradient(1000px 700px at 80% -10%,#1a2650 0%,#0b1020 45%)}
     header{padding:18px 20px 10px;display:flex;gap:12px;align-items:center;justify-content:space-between}
     h1{margin:0;font-size:18px}
-    main{padding:16px;display:grid;gap:16px;grid-template-columns:1fr 200px}
+    main{padding:16px;display:grid;gap:16px;grid-template-columns:1fr 360px}
     .card{background:rgba(16,24,58,.8);border:1px solid #22306b;border-radius:16px;padding:14px;box-shadow:0 8px 30px rgba(0,0,0,.25)}
     label{display:block;margin-top:8px;font-size:14px;color:var(--muted)}
     input[type="text"]{width:100%;padding:10px;border-radius:12px;border:1px solid #2a3a77;background:#0d1433;color:#eaf0ff}
@@ -82,11 +82,18 @@
 </head>
 <body>
 <header>
-  <div id="info" class="hint">-</div>
+  <h1>승인제 WebRTC (방송/미팅-2.1)</h1>
+  <div class="row">
+    <span class="tag">P2P</span>
+    <span class="tag">Firebase RTDB</span>
+    <span class="tag">익명 인증</span>
+  </div>
 </header>
 
 <main>
   <section class="card">
+    <h2 style="margin:0 0 8px 0">라이브</h2>
+
     <!-- 미팅 모드: 다자간 비디오 그리드 -->
     <div id="meetingVideos">
       <div class="meeting-grid" id="remoteVideosGrid">
@@ -96,7 +103,11 @@
           <video id="localPreview" autoplay playsinline webkit-playsinline muted controls></video>
         </div>
       </div>
+      <div class="row" style="margin-top:8px">
+        <button id="togglePreviewBtn">내 화면 숨기기</button>
+      </div>
     </div>
+
 
     <!-- 전체화면 비디오 -->
     <div id="fullscreenVideo" class="fullscreen-video">
@@ -107,12 +118,84 @@
     </div>
 
     <audio id="audiomirror" autoplay playsinline webkit-playsinline style="display:none"></audio>
+
+    <div class="grid-2" style="margin-top:10px">
+      <div>
+        <label>역할</label>
+        <div class="row">
+          <label class="row"><input type="radio" name="role" value="host" checked> 송출자(호스트)</label>
+          <label class="row"><input type="radio" name="role" value="guest"> 시청자/게스트</label>
+        </div>
+      </div>
+      <div>
+        <label>방 코드(Room ID)</label>
+        <input id="roomId" type="text" placeholder="예: RM-20241225" />
+        <small class="hint">직접 입력 또는 자동 생성 (RM-날짜 형식)</small>
+      </div>
+    </div>
+
+
+    <!-- 카메라 제어 -->
+    <div class="row" id="cameraCtrl" style="margin-top:10px; display:none">
+      <button id="muteMicBtn">마이크 음소거</button>
+      <button id="muteCamBtn">카메라 끄기</button>
+      <button id="shareScreenBtn" style="display:none">화면공유 시작</button>
+      <button id="openCameraPiPBtn" style="display:none" title="호스트 카메라 Picture-in-Picture 모드">🖼️ 카메라 PiP</button>
+    </div>
+    
+    <!-- 새 브라우저 창 열기 버튼 (별도 위치) -->
+    <div class="row" style="margin-top:10px">
+      <button id="openBrowserWindowBtn" style="display:none" class="primary" title="다른 브라우저 창/탭에서 카메라 영상 열기">🌐 새 창에서 카메라 열기</button>
+    </div>
+
+    <div class="row" style="margin-top:10px">
+      <button id="genRoom">방 코드 자동생성</button>
+      <button class="primary" id="startBtn">시작</button>
+      <button class="danger" id="stopBtn" disabled>종료</button>
+      <button id="unmuteBtn" style="display:none">🔊 소리 켜기</button>
+    </div>
+
+
+    <div style="margin-top:6px"><small id="status" class="muted">대기 중…</small></div>
+    <div id="presenterHints" style="margin-top:12px;display:none">
+      <small class="hint">* iPad는 첫 재생 시 🔊 버튼(또는 화면 탭)으로 음소거 해제가 필요할 수 있습니다.</small>
+    </div>
   </section>
 
   <aside class="card">
-    <h1 style="margin:0;font-size:18px">승인제 WebRTC (방송/미팅-2.1)</h1>
+    <h3 style="margin-top:0">승인 대기 목록(호스트 전용)</h3>
+    <ul id="pending"></ul>
+    <hr style="border:none;border-top:1px solid #2a3a77;margin:12px 0"/>
+    <div>
+      <h3 style="margin:0 0 8px 0">연결 정보</h3>
+      <div id="info" class="hint">-</div>
+    </div>
+    <hr style="border:none;border-top:1px solid #2a3a77;margin:12px 0"/>
+    <div>
+      <h3 style="margin:0 0 8px 0">채팅</h3>
+      <div class="chat-container">
+        <div id="chatMessages" class="chat-messages"></div>
+        <div class="chat-input-row">
+          <input id="chatInput" type="text" placeholder="메시지 입력..." maxlength="200" />
+          <button id="chatSendBtn">전송</button>
+        </div>
+        <!-- 시청자 전용 질문하기 버튼 -->
+        <div id="questionBtnWrapper" style="margin-top:8px; display:none">
+          <button id="questionBtn" class="primary" style="width:100%">❓ 송출자에게 질문하기</button>
+        </div>
+      </div>
+    </div>
+    <hr style="border:none;border-top:1px solid #2a3a77;margin:12px 0"/>
+    <div>
+      <h3 style="margin:0 0 8px 0">로그</h3>
+      <pre id="log" class="hint" style="white-space:pre-wrap;max-height:150px;overflow:auto"></pre>
+    </div>
   </aside>
 </main>
+
+<footer>
+  대규모/다자간은 SFU 권장(LiveKit/Janus/mediasoup). TURN 추가 시 연결률↑
+</footer>
 
 <div id="toast"></div>
 
