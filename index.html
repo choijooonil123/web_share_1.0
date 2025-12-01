@@ -82,13 +82,13 @@
 </head>
 <body>
 <header>
-  <h1 style="margin:0;font-size:18px;margin-right:auto">승인제 WebRTC (방송/미팅-2.1)</h1>
+  <h1 style="margin:0;font-size:18px;margin-right:auto">김천대 본관 6층 사무엘실</h1>
   
   <div class="row" style="gap:8px;align-items:center">
     <label style="margin:0;display:flex;align-items:center;gap:6px">
       <span style="font-size:14px;color:var(--muted)">역할:</span>
-      <label style="margin:0"><input type="radio" name="role" value="host" checked> 호스트</label>
-      <label style="margin:0"><input type="radio" name="role" value="guest"> 게스트</label>
+      <label style="margin:0"><input type="radio" name="role" value="host" checked> 교수</label>
+      <label style="margin:0"><input type="radio" name="role" value="guest"> 학생</label>
     </label>
   </div>
   
@@ -117,12 +117,6 @@
     <div id="presenterHints" style="display:none">
       <small class="hint" style="font-size:11px">* iPad는 첫 재생 시 🔊 버튼(또는 화면 탭)으로 음소거 해제가 필요할 수 있습니다.</small>
     </div>
-  </div>
-  
-  <div class="row" style="gap:6px">
-    <span class="tag">P2P</span>
-    <span class="tag">Firebase RTDB</span>
-    <span class="tag">익명 인증</span>
   </div>
 </header>
 
@@ -172,7 +166,7 @@
         </div>
         <!-- 시청자 전용 질문하기 버튼 -->
         <div id="questionBtnWrapper" style="margin-top:8px; display:none">
-          <button id="questionBtn" class="primary" style="width:100%">❓ 송출자에게 질문하기</button>
+          <button id="questionBtn" class="primary" style="width:100%">❓ 교수에게 질문하기</button>
         </div>
       </div>
     </div>
@@ -194,7 +188,7 @@
 <div id="pendingModal" class="modal">
   <div class="modal-content">
     <div class="modal-header">
-      <h3>승인 대기 목록 (호스트 전용)</h3>
+      <h3>승인 대기 목록 (교수 전용)</h3>
       <button class="modal-close" id="pendingModalClose">×</button>
     </div>
     <ul id="pending"></ul>
@@ -314,7 +308,10 @@ const logBtn = document.getElementById('logBtn');
 
 /* ---------------- Modal Controls ---------------- */
 function showPendingModal() {
-  if (pendingModal && role === 'host') {
+  // 호스트가 방을 만든 후 role이 'guest'로 변경되지만, 실제로는 호스트 권한을 가지고 있음
+  // isRunning이 true이고 peerConnections이 있으면 호스트로 간주
+  const isActuallyHost = isRunning && (peerConnections.size > 0 || role === 'host');
+  if (pendingModal && isActuallyHost) {
     pendingModal.classList.add('show');
   }
 }
@@ -433,29 +430,46 @@ if (roleInputs.length > 0) {
 }
 function refreshUIByMode(){
   const isHost = role==='host';
+  const isGuest = role==='guest';
 
-  if (presenterHints) presenterHints.style.display = isHost ? 'block' : 'none';
+  // 역할 선택 라디오 버튼: 호스트가 방을 만든 후에는 비활성화하고 게스트로 고정
+  if (roleInputs.length > 0) {
+    roleInputs.forEach(r => {
+      // 호스트가 방을 만든 후(isRunning && role이 guest로 변경됨)에는 비활성화
+      if (isRunning && role === 'guest') {
+        r.disabled = true;
+      } else {
+        r.disabled = false;
+      }
+    });
+  }
+
+  // 호스트 전용 UI 요소 (호스트가 방을 만든 후에는 숨김)
+  if (shareScreenBtn) shareScreenBtn.style.display = (isHost && isRunning && role === 'host') ? 'inline-block' : 'none';
+  if (openCameraPiPBtn) {
+    if (isHost && isRunning && role === 'host') {
+      const hasCameraForPiP = (hostCameraStream) || (localStream && localStream.getVideoTracks().length > 0);
+      const isPiPSupported = document.pictureInPictureEnabled !== undefined;
+      openCameraPiPBtn.style.display = (hasCameraForPiP && isPiPSupported) ? 'inline-block' : 'none';
+    } else {
+      openCameraPiPBtn.style.display = 'none';
+    }
+  }
+  if (muteMicBtn) muteMicBtn.style.display = (isHost && isRunning && role === 'host') ? 'inline-block' : 'none';
+  if (muteCamBtn) muteCamBtn.style.display = (isHost && isRunning && role === 'host') ? 'inline-block' : 'none';
+  if (openBrowserWindowBtn) openBrowserWindowBtn.style.display = 'none';
+  if (togglePreviewBtn) togglePreviewBtn.style.display = (isHost && isRunning && role === 'host') ? 'inline-block' : 'none';
+  
+  // 게스트 전용 UI 요소
+  if (questionBtnWrapper) {
+    questionBtnWrapper.style.display = (isGuest && isRunning) ? 'block' : 'none';
+  }
+
+  if (presenterHints) presenterHints.style.display = (isHost && !isRunning) ? 'block' : 'none';
   
   // 미팅 모드: 시작 후에는 항상 카메라/마이크 컨트롤 표시
   if (meetingVideos) meetingVideos.classList.remove('hidden');
-  if (cameraCtrl) cameraCtrl.style.display = isRunning ? 'flex' : 'none';
-  if (shareScreenBtn) shareScreenBtn.style.display = isRunning ? 'inline-block' : 'none';
-  
-  // 호스트 카메라 PiP 버튼 (호스트만, 카메라 스트림이 있을 때, PiP 지원 브라우저)
-  if (isHost && openCameraPiPBtn) {
-    const hasCameraForPiP = (isRunning && hostCameraStream) || (isRunning && localStream && localStream.getVideoTracks().length > 0);
-    const isPiPSupported = document.pictureInPictureEnabled !== undefined;
-    openCameraPiPBtn.style.display = (hasCameraForPiP && isPiPSupported) ? 'inline-block' : 'none';
-  }
-  
-  if (openBrowserWindowBtn) {
-    openBrowserWindowBtn.style.display = 'none';
-  }
-  
-  // 시청자 전용 질문하기 버튼 표시
-  if (questionBtnWrapper) {
-    questionBtnWrapper.style.display = (!isHost && isRunning) ? 'block' : 'none';
-  }
+  if (cameraCtrl) cameraCtrl.style.display = (isRunning && isHost && role === 'host') ? 'flex' : 'none';
 }
 refreshUIByMode();
 
@@ -466,14 +480,14 @@ if (switchCamBtn) switchCamBtn.addEventListener('click', async ()=>{
   await replaceVideoTrack();
 });
 
-muteMicBtn.addEventListener('click', ()=>{
+if (muteMicBtn) muteMicBtn.addEventListener('click', ()=>{
   const t = localStream?.getAudioTracks?.()[0];
   if(!t) return;
   t.enabled = !t.enabled;
   muteMicBtn.textContent = t.enabled ? '마이크 음소거' : '마이크 켜기';
 });
 
-muteCamBtn.addEventListener('click', ()=>{
+if (muteCamBtn) muteCamBtn.addEventListener('click', ()=>{
   const t = localStream?.getVideoTracks?.()[0];
   if(!t) return;
   t.enabled = !t.enabled;
@@ -481,7 +495,7 @@ muteCamBtn.addEventListener('click', ()=>{
 });
 
 // 화면공유 시작/종료
-shareScreenBtn.addEventListener('click', async ()=>{
+if (shareScreenBtn) shareScreenBtn.addEventListener('click', async ()=>{
   if (isScreenSharing) {
     await stopScreenShare();
   } else {
@@ -800,7 +814,7 @@ async function sendChatMessage(){
   
   const chatData = {
     senderId: myUserId,
-    senderName: role === 'host' ? '호스트' : `게스트 ${myUserId.substring(0,6)}`,
+    senderName: role === 'host' ? '교수' : `학생 ${myUserId.substring(0,6)}`,
     message: trimmedMessage,
     timestamp: Date.now()
   };
@@ -822,7 +836,7 @@ async function sendQuestionNotification(){
     return;
   }
   
-  const guestName = `게스트 ${myUserId.substring(0,6)}`;
+  const guestName = `학생 ${myUserId.substring(0,6)}`;
   
   try {
     if (isQuestionRequestActive) {
@@ -1852,7 +1866,7 @@ function addPending(vid, data){
   li.id = `pending-${vid}`;
   li.innerHTML = `
     <div>
-      <div><b>게스트</b> <span class="tag">${vid}</span></div>
+      <div><b>학생</b> <span class="tag">${vid}</span></div>
       <div class="muted" style="font-size:12px">오퍼 수신</div>
     </div>
     <div class="row">
@@ -1998,6 +2012,13 @@ async function startHost(){
 
     startBtn.disabled = true; stopBtn.disabled = false; isRunning=true;
     
+    // 호스트가 방을 만든 후 역할을 게스트로 변경
+    role = 'guest';
+    const guestInput = document.querySelector('input[name="role"][value="guest"]');
+    if (guestInput) {
+      guestInput.checked = true;
+    }
+    
     // 시작 후 UI 업데이트 (버튼 표시 등)
     refreshUIByMode();
     
@@ -2010,14 +2031,14 @@ async function startHost(){
     }
     
     logStatus(`호스트 대기/송출 중… 방 코드: ${roomId} · 모드: ${comm}`);
-    toast('게스트에게 방 코드를 공유하세요');
+    toast('학생에게 방 코드를 공유하세요');
     
     // 채팅 초기화
     chatMessages.innerHTML = '';
     initChat();
   } catch(e) {
     log('[Host] 시작 실패: ' + e.message);
-    toast('호스트 시작 실패: ' + e.message);
+    toast('교수 시작 실패: ' + e.message);
     startBtn.disabled = false;
     stopBtn.disabled = true;
     isRunning = false;
@@ -2184,14 +2205,14 @@ function toggleGuestAudio(guestId, btnElement) {
     btnElement.textContent = '🔇 음소거';
     btnElement.classList.add('muted');
     log(`[Host] 게스트 ${guestId.substring(0,6)} 음소거`);
-    toast(`게스트 ${guestId.substring(0,6)} 음소거됨`);
+    toast(`학생 ${guestId.substring(0,6)} 음소거됨`);
   } else {
     // 음소거 해제
     audioTrack.enabled = true;
     btnElement.textContent = '🔊 음소거 해제';
     btnElement.classList.remove('muted');
     log(`[Host] 게스트 ${guestId.substring(0,6)} 음소거 해제`);
-    toast(`게스트 ${guestId.substring(0,6)} 음소거 해제됨`);
+    toast(`학생 ${guestId.substring(0,6)} 음소거 해제됨`);
   }
 }
 
@@ -2286,12 +2307,12 @@ async function allowGuestQuestion(guestId) {
     if (endBtn) endBtn.style.display = 'block';
     
     currentQuestionGuestId = guestId;
-    toast(`게스트 ${guestId.substring(0,6)}에게 질문 허락됨`);
+    toast(`학생 ${guestId.substring(0,6)}에게 질문 허락됨`);
     
   } catch(e) {
     console.error('게스트 질문 허락 실패:', e);
     log('[Host] 게스트 질문 허락 실패: ' + e.message);
-    toast('게스트 질문 허락 실패: ' + e.message);
+    toast('학생 질문 허락 실패: ' + e.message);
   }
 }
 
@@ -2356,12 +2377,12 @@ async function endGuestQuestion(guestId) {
     // 상태 초기화
     hostPiPWasActiveBeforeQuestion = false;
     currentQuestionGuestId = null;
-    toast(`게스트 ${guestId.substring(0,6)} 질문 완료`);
+    toast(`학생 ${guestId.substring(0,6)} 질문 완료`);
     
   } catch(e) {
     console.error('게스트 질문 완료 실패:', e);
     log('[Host] 게스트 질문 완료 실패: ' + e.message);
-    toast('게스트 질문 완료 실패: ' + e.message);
+    toast('학생 질문 완료 실패: ' + e.message);
   }
 }
 
@@ -2474,7 +2495,7 @@ async function acceptGuest(vid, data, li){
         // 미팅: 각 게스트마다 별도 비디오 엘리먼트 생성
         let videoEl = remoteVideos.get(vid);
         if (!videoEl) {
-          videoEl = createRemoteVideoElement(vid, `게스트 ${vid.substring(0,6)}`);
+          videoEl = createRemoteVideoElement(vid, `학생 ${vid.substring(0,6)}`);
           remoteVideos.set(vid, videoEl);
         }
         if (videoEl.srcObject !== stream) {
@@ -2982,7 +3003,7 @@ async function startGuest(){
     initChat();
   } catch(e) {
     log('[Guest] 시작 실패: ' + e.message);
-    toast('게스트 시작 실패: ' + e.message);
+    toast('학생 시작 실패: ' + e.message);
     startBtn.disabled = false;
     stopBtn.disabled = true;
     isRunning = false;
@@ -3133,17 +3154,23 @@ async function cleanup(){
   player.srcObject=null; localPreview.srcObject=null;
   remoteVideosGrid.innerHTML='';
   remoteVideos.clear();
-  pendingEl.innerHTML=''; logStatus('대기 중…'); unmuteBtn.style.display='none'; tapUnmuteOverlay.style.display='none';
+  pendingEl.innerHTML=''; logStatus('대기 중…'); if(unmuteBtn) unmuteBtn.style.display='none'; if(tapUnmuteOverlay) tapUnmuteOverlay.style.display='none';
   showLocalPreview = true;  // 기본값으로 리셋 (표시)
   if (localPreviewWrapper) {
     localPreviewWrapper.style.display = 'block';
   }
-  togglePreviewBtn.textContent = '내 화면 숨기기';
-  chatMessages.innerHTML = '';
-  chatInput.value = '';
+  if (togglePreviewBtn) togglePreviewBtn.textContent = '내 화면 숨기기';
+  if (chatMessages) chatMessages.innerHTML = '';
+  if (chatInput) chatInput.value = '';
   myUserId = '';
   viewerId = '';  // 게스트 ID 리셋
   roomId = '';  // 방 코드 리셋
+  role = 'host';  // 역할 초기화 (호스트로 리셋)
+  const hostInput = document.querySelector('input[name="role"][value="host"]');
+  if (hostInput) hostInput.checked = true;
+  if (roleInputs.length > 0) {
+    roleInputs.forEach(r => r.disabled = false);
+  }
   if (infoEl) infoEl.textContent = '-';  // 연결 정보 초기화
   
   // 화면공유 정리
@@ -3153,8 +3180,10 @@ async function cleanup(){
       screenShareStream = null;
     }
     isScreenSharing = false;
-    shareScreenBtn.textContent = '화면공유 시작';
-    shareScreenBtn.style.background = '';
+    if (shareScreenBtn) {
+      shareScreenBtn.textContent = '화면공유 시작';
+      shareScreenBtn.style.background = '';
+    }
   }
   
   // 호스트 카메라 별도 창 닫기
