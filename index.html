@@ -75,7 +75,8 @@
     .modal-header h3{margin:0;font-size:18px}
     .modal-close{width:32px;height:32px;border-radius:50%;border:none;background:rgba(255,106,106,.8);color:#fff;cursor:pointer;font-size:20px;display:flex;align-items:center;justify-content:center}
     .modal-close:hover{background:rgba(255,74,74,1)}
-    #info{font-size:12px;color:var(--muted);padding:8px 12px;background:rgba(16,24,58,.6);border-radius:8px;border:1px solid #2a3a77}
+    #info{position:fixed;top:10px;right:10px;font-size:12px;color:var(--muted);padding:8px 12px;background:rgba(16,24,58,.8);border-radius:8px;border:1px solid #2a3a77;z-index:1000}
+    #status{position:fixed;top:50px;right:10px;font-size:12px;color:var(--muted);padding:8px 12px;background:rgba(16,24,58,.8);border-radius:8px;border:1px solid #2a3a77;z-index:1000}
     #logBtn{position:fixed;bottom:20px;right:20px;width:50px;height:50px;border-radius:50%;border:none;background:rgba(106,166,255,.8);color:#fff;cursor:pointer;font-size:20px;z-index:1000;box-shadow:0 4px 12px rgba(0,0,0,.3)}
     #logBtn:hover{background:rgba(106,166,255,1)}
   </style>
@@ -154,16 +155,7 @@
       <small class="muted"><span id="gainVal">2.0</span>x</small>
     </div>
 
-    <div style="margin-top:6px"><small id="status" class="muted">대기 중…</small></div>
-    <div id="presenterHints" style="margin-top:12px;display:none">
-      <small class="hint">* iPad는 첫 재생 시 🔊 버튼(또는 화면 탭)으로 음소거 해제가 필요할 수 있습니다.</small>
-    </div>
-
-    <hr style="border:none;border-top:1px solid #2a3a77;margin:12px 0"/>
-    <div>
-      <h3 style="margin:0 0 8px 0;font-size:14px">승인 대기 목록</h3>
-      <button id="showPendingBtn" class="primary" style="width:100%;font-size:12px;padding:8px">승인 대기 목록 보기</button>
-    </div>
+    <div id="status" class="muted" style="position:fixed;top:50px;right:10px;font-size:12px;padding:8px 12px;background:rgba(16,24,58,.8);border-radius:8px;border:1px solid #2a3a77;z-index:1000">대기 중…</div>
     <hr style="border:none;border-top:1px solid #2a3a77;margin:12px 0"/>
     <div>
       <h3 style="margin:0 0 8px 0;font-size:14px">채팅</h3>
@@ -3004,9 +2996,7 @@ if (startBtn) startBtn.addEventListener('click', async ()=>{
 if (stopBtn) stopBtn.addEventListener('click', async ()=>{ await cleanup(); });
 
 // 승인 대기 목록 및 채팅 모달 열기 버튼
-const showPendingBtn = document.getElementById('showPendingBtn');
 const showChatBtn = document.getElementById('showChatBtn');
-if (showPendingBtn) showPendingBtn.addEventListener('click', showPendingModal);
 if (showChatBtn) showChatBtn.addEventListener('click', showChatModal);
 window.addEventListener('DOMContentLoaded', ()=>{
   const p = new URLSearchParams(location.search);
