@@ -110,7 +110,67 @@
   </section>
 
   <aside class="card">
-    <h1 style="margin:0;font-size:18px">승인제 WebRTC (방송/미팅-2.1)</h1>
+    <h1 style="margin:0;font-size:18px;margin-bottom:12px">승인제 WebRTC (방송/미팅-2.1)</h1>
+    
+    <div class="grid-2" style="margin-top:10px">
+      <div>
+        <label>역할</label>
+        <div class="row">
+          <label class="row"><input type="radio" name="role" value="host" checked> 송출자(호스트)</label>
+          <label class="row"><input type="radio" name="role" value="guest"> 시청자/게스트</label>
+        </div>
+      </div>
+      <div>
+        <label>방 코드(Room ID)</label>
+        <input id="roomId" type="text" placeholder="예: rm-k3G7a9fQ2" />
+        <small class="hint">직접 입력 또는 자동 생성</small>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:10px">
+      <button id="genRoom">방 코드 자동생성</button>
+      <button class="primary" id="startBtn">시작</button>
+      <button class="danger" id="stopBtn" disabled>종료</button>
+      <button id="unmuteBtn" style="display:none">🔊 소리 켜기</button>
+    </div>
+
+    <!-- 카메라 제어 -->
+    <div class="row" id="cameraCtrl" style="margin-top:10px; display:none">
+      <button id="switchCamBtn">전/후면 전환</button>
+      <button id="muteMicBtn">마이크 음소거</button>
+      <button id="muteCamBtn">카메라 끄기</button>
+    </div>
+
+    <!-- 추가 컨트롤 버튼 -->
+    <div class="row" style="margin-top:10px; display:none" id="additionalControls">
+      <button id="shareScreenBtn" style="display:none">화면공유</button>
+      <button id="openBrowserWindowBtn" style="display:none">브라우저 창 열기</button>
+      <button id="openCameraPiPBtn" style="display:none">카메라 PiP</button>
+      <button id="togglePreviewBtn" style="display:none">미리보기 토글</button>
+    </div>
+
+    <!-- 오디오 증폭 -->
+    <div id="gainRow" class="row" style="margin-top:8px; display:none">
+      <small class="muted">오디오 증폭:</small>
+      <input id="gainSlider" type="range" min="1" max="3" step="0.1" value="2" />
+      <small class="muted"><span id="gainVal">2.0</span>x</small>
+    </div>
+
+    <div style="margin-top:6px"><small id="status" class="muted">대기 중…</small></div>
+    <div id="presenterHints" style="margin-top:12px;display:none">
+      <small class="hint">* iPad는 첫 재생 시 🔊 버튼(또는 화면 탭)으로 음소거 해제가 필요할 수 있습니다.</small>
+    </div>
+
+    <hr style="border:none;border-top:1px solid #2a3a77;margin:12px 0"/>
+    <div>
+      <h3 style="margin:0 0 8px 0;font-size:14px">승인 대기 목록</h3>
+      <button id="showPendingBtn" class="primary" style="width:100%;font-size:12px;padding:8px">승인 대기 목록 보기</button>
+    </div>
+    <hr style="border:none;border-top:1px solid #2a3a77;margin:12px 0"/>
+    <div>
+      <h3 style="margin:0 0 8px 0;font-size:14px">채팅</h3>
+      <button id="showChatBtn" class="primary" style="width:100%;font-size:12px;padding:8px">채팅 열기</button>
+    </div>
   </aside>
 </main>
 
@@ -392,22 +452,22 @@ if (switchCamBtn) switchCamBtn.addEventListener('click', async ()=>{
   await replaceVideoTrack();
 });
 
-muteMicBtn.addEventListener('click', ()=>{
+if (muteMicBtn) muteMicBtn.addEventListener('click', ()=>{
   const t = localStream?.getAudioTracks?.()[0];
   if(!t) return;
   t.enabled = !t.enabled;
-  muteMicBtn.textContent = t.enabled ? '마이크 음소거' : '마이크 켜기';
+  if (muteMicBtn) muteMicBtn.textContent = t.enabled ? '마이크 음소거' : '마이크 켜기';
 });
 
-muteCamBtn.addEventListener('click', ()=>{
+if (muteCamBtn) muteCamBtn.addEventListener('click', ()=>{
   const t = localStream?.getVideoTracks?.()[0];
   if(!t) return;
   t.enabled = !t.enabled;
-  muteCamBtn.textContent = t.enabled ? '카메라 끄기' : '카메라 켜기';
+  if (muteCamBtn) muteCamBtn.textContent = t.enabled ? '카메라 끄기' : '카메라 켜기';
 });
 
 // 화면공유 시작/종료
-shareScreenBtn.addEventListener('click', async ()=>{
+if (shareScreenBtn) shareScreenBtn.addEventListener('click', async ()=>{
   if (isScreenSharing) {
     await stopScreenShare();
   } else {
@@ -551,7 +611,7 @@ if (gainSlider) {
     if (gainNode) {
       const v = parseFloat(gainSlider.value);
       gainNode.gain.value = v;
-      gainVal.textContent = v.toFixed(1);
+      if (gainVal) gainVal.textContent = v.toFixed(1);
     }
   });
 }
@@ -2935,6 +2995,12 @@ if (startBtn) startBtn.addEventListener('click', async ()=>{
 });
 if (stopBtn) stopBtn.addEventListener('click', async ()=>{ await cleanup(); });
 if (genRoom && roomIdInput) genRoom.addEventListener('click', ()=>{ roomIdInput.value = generateRoomId(); });
+
+// 승인 대기 목록 및 채팅 모달 열기 버튼
+const showPendingBtn = document.getElementById('showPendingBtn');
+const showChatBtn = document.getElementById('showChatBtn');
+if (showPendingBtn) showPendingBtn.addEventListener('click', showPendingModal);
+if (showChatBtn) showChatBtn.addEventListener('click', showChatModal);
 window.addEventListener('DOMContentLoaded', ()=>{
   const p = new URLSearchParams(location.search);
   const mode = p.get('mode');
