@@ -3189,7 +3189,12 @@ async function startGuest(){
         }
       }
       
-      if (isiOS) showIOSUnmuteOverlayIfNeeded(); else unmuteBtn.style.display='inline-block';
+      if (isiOS) {
+        showIOSUnmuteOverlayIfNeeded();
+      } else if (unmuteBtn) {
+        // 일부 레이아웃에서는 unmuteBtn이 없을 수 있으므로 존재 여부를 확인
+        unmuteBtn.style.display='inline-block';
+      }
     }else{
       // 미팅 모드: 교수의 스트림을 표시
       // 화면공유 트랙과 카메라 트랙을 모두 처리 (카메라 영상이 멈추지 않도록)
