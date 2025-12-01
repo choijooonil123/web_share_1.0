@@ -82,7 +82,6 @@
 </head>
 <body>
 <header>
-  <h1>승인제 WebRTC (방송/미팅-2.2)</h1>
   <div class="row">
     <span class="tag">P2P</span>
     <span class="tag">Firebase RTDB</span>
@@ -96,8 +95,6 @@
     <div class="row" style="margin-bottom:12px;gap:6px;flex-wrap:wrap">
       <button id="muteMicBtn" style="display:none">마이크 켜기</button>
       <button id="muteCamBtn" style="display:none">카메라 끄기</button>
-      <button id="shareScreenBtn" style="display:none">화면공유 시작</button>
-      <button id="openCameraPiPBtn" style="display:none" title="호스트 카메라 Picture-in-Picture 모드">🖼️ 카메라 PiP</button>
       <button class="primary" id="startBtn">시작</button>
       <button class="danger" id="stopBtn" disabled>종료</button>
     </div>
@@ -123,24 +120,6 @@
 
     <audio id="audiomirror" autoplay playsinline webkit-playsinline style="display:none"></audio>
 
-    <!-- 컨트롤 영역: 밀도있게 배치 -->
-    <div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start">
-      <div>
-        <label style="margin-top:0;margin-bottom:6px">역할</label>
-        <div class="row" style="gap:12px">
-          <label class="row" style="margin:0"><input type="radio" name="role" value="host" checked> 송출자(호스트)</label>
-          <label class="row" style="margin:0"><input type="radio" name="role" value="guest"> 시청자/게스트</label>
-        </div>
-      </div>
-      <div>
-        <label style="margin-top:0;margin-bottom:6px">방 코드(Room ID)</label>
-        <div class="row" style="gap:6px;margin-top:0">
-          <input id="roomId" type="text" placeholder="예: RM-20241225" style="flex:1" />
-          <button id="genRoom" style="white-space:nowrap">자동생성</button>
-        </div>
-      </div>
-    </div>
-
     <!-- 기타 카메라 제어 버튼 -->
     <div class="row" id="cameraCtrl" style="margin-top:10px; display:none;gap:6px;flex-wrap:wrap">
       <button id="openBrowserWindowBtn" style="display:none" class="primary" title="다른 브라우저 창/탭에서 카메라 영상 열기">🌐 새 창</button>
@@ -162,6 +141,28 @@
   </section>
 
   <aside class="card">
+    <h1 style="margin:0 0 16px 0;font-size:18px">승인제 WebRTC (방송/미팅-2.1)</h1>
+    
+    <!-- 역할 및 방 코드 -->
+    <div style="margin-bottom:16px">
+      <label style="margin-bottom:6px">역할</label>
+      <div class="row" style="gap:12px;margin-bottom:12px">
+        <label class="row" style="margin:0"><input type="radio" name="role" value="host" checked> 송출자(호스트)</label>
+        <label class="row" style="margin:0"><input type="radio" name="role" value="guest"> 시청자/게스트</label>
+      </div>
+      <label style="margin-bottom:6px">방 코드(Room ID)</label>
+      <div class="row" style="gap:6px;margin-bottom:12px">
+        <input id="roomId" type="text" placeholder="예: RM-20241225" style="flex:1" />
+        <button id="genRoom" style="white-space:nowrap">자동생성</button>
+      </div>
+      <div class="row" style="gap:6px;flex-wrap:wrap">
+        <button id="shareScreenBtn" style="display:none;flex:1">화면공유 시작</button>
+        <button id="openCameraPiPBtn" style="display:none;flex:1" title="호스트 카메라 Picture-in-Picture 모드">🖼️ 카메라 PiP</button>
+      </div>
+    </div>
+    
+    <hr style="border:none;border-top:1px solid #2a3a77;margin:12px 0"/>
+    
     <h3 style="margin-top:0">승인 대기 목록(호스트 전용)</h3>
     <ul id="pending"></ul>
     <hr style="border:none;border-top:1px solid #2a3a77;margin:12px 0"/>
