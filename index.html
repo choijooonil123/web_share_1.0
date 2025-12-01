@@ -1882,8 +1882,13 @@ async function stopScreenShare(){
   isScreenSharing = false;
   
   try {
-    // 화면공유 트랙 제거
-    const screenTrack = localStream.getVideoTracks().find(t => t.label.includes('screen') || t.label.includes('화면'));
+    // 화면공유 트랙 제거 (label 대소문자 구분 없이 확인)
+    const screenTrack = localStream.getVideoTracks().find(t => {
+      const label = (t.label || '').toLowerCase();
+      return label.includes('screen') || label.includes('화면') ||
+             label.includes('display') || label.includes('monitor') ||
+             label.includes('window') || label.includes('desktop');
+    });
     if (screenTrack) {
       // onended 핸들러 제거 (재귀 호출 방지)
       screenTrack.onended = null;
@@ -1978,16 +1983,16 @@ function addPending(vid, data){
     log(`[교수] ${vid}는 이미 연결되어 있습니다`);
     return;
   }
-  
   // 학생 이름 가져오기 (offer 데이터에서)
-  const studentName = (data && data.studentName) ? data.studentName : '';
-  const displayName = studentName ? studentName : `학생 ${vid.substring(0,6)}`;
+  const pendingStudentName = (data && data.studentName) ? data.studentName : '';
+  // 승인대기목록에서는 "학생" 라벨은 그대로 두고, 옆에 학생이 입력한 이름을 표시
+  const nameSuffix = pendingStudentName ? ` (${pendingStudentName})` : '';
   
   const li = document.createElement('li');
   li.id = `pending-${vid}`;
   li.innerHTML = `
     <div>
-      <div><b>${displayName}</b> <span class="tag">${vid.substring(0,6)}</span></div>
+      <div><b>학생</b>${nameSuffix} <span class="tag">${vid.substring(0,6)}</span></div>
       <div class="muted" style="font-size:12px">오퍼 수신</div>
     </div>
     <div class="row">
@@ -2644,7 +2649,12 @@ async function acceptGuest(vid, data, li){
         // 미팅: 각 게스트마다 별도 비디오 엘리먼트 생성
         let videoEl = remoteVideos.get(vid);
         if (!videoEl) {
-          videoEl = createRemoteVideoElement(vid, `학생 ${vid.substring(0,6)}`);
+          // 승인 시에도 "학생" 라벨은 유지하고, 학생이 입실할 때 입력한 이름을 함께 표기
+          const guestStudentName = (data && data.studentName) ? data.studentName : '';
+          const guestLabel = guestStudentName
+            ? `학생 (${guestStudentName})`
+            : `학생 ${vid.substring(0,6)}`;
+          videoEl = createRemoteVideoElement(vid, guestLabel);
           remoteVideos.set(vid, videoEl);
         }
         
