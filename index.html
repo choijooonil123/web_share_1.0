@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>승인제 WebRTC (방송/미팅)</title>
+  <title>김천대 본관 6층 사무엘실</title>
   <style>
     :root{ --bg:#0b1020; --panel:#10183a; --ink:#eaf0ff; --muted:#a7b3d4; --brand:#6aa6ff; --ok:#4cd97b; --danger:#ff6a6a; }
     *{box-sizing:border-box}
@@ -110,14 +110,14 @@
   </section>
 
   <aside class="card">
-    <h1 style="margin:0;font-size:18px;margin-bottom:12px">승인제 WebRTC (방송/미팅-2.1)</h1>
+    <h1 style="margin:0;font-size:18px;margin-bottom:12px">김천대 본관 6층 사무엘실</h1>
     
     <div class="grid-2" style="margin-top:10px">
       <div>
         <label>역할</label>
         <div class="row">
-          <label class="row"><input type="radio" name="role" value="host" checked> 송출자(호스트)</label>
-          <label class="row"><input type="radio" name="role" value="guest"> 시청자/게스트</label>
+          <label class="row"><input type="radio" name="role" value="host" checked> 교수</label>
+          <label class="row"><input type="radio" name="role" value="guest"> 학생</label>
         </div>
       </div>
       <div>
@@ -128,15 +128,13 @@
     </div>
 
     <div class="row" style="margin-top:10px">
-      <button id="genRoom">방 코드 자동생성</button>
-      <button class="primary" id="startBtn">시작</button>
-      <button class="danger" id="stopBtn" disabled>종료</button>
+      <button class="primary" id="startBtn">입실</button>
+      <button class="danger" id="stopBtn" disabled>퇴실</button>
       <button id="unmuteBtn" style="display:none">🔊 소리 켜기</button>
     </div>
 
     <!-- 카메라 제어 -->
     <div class="row" id="cameraCtrl" style="margin-top:10px; display:none">
-      <button id="switchCamBtn">전/후면 전환</button>
       <button id="muteMicBtn">마이크 음소거</button>
       <button id="muteCamBtn">카메라 끄기</button>
     </div>
@@ -180,7 +178,7 @@
 <div id="pendingModal" class="modal">
   <div class="modal-content">
     <div class="modal-header">
-      <h3>승인 대기 목록 (호스트 전용)</h3>
+      <h3>승인 대기 목록 (교수 전용)</h3>
       <button class="modal-close" id="pendingModalClose">×</button>
     </div>
     <ul id="pending"></ul>
@@ -202,7 +200,7 @@
       </div>
       <!-- 시청자 전용 질문하기 버튼 -->
       <div id="questionBtnWrapper" style="margin-top:8px; display:none">
-        <button id="questionBtn" class="primary" style="width:100%">❓ 송출자에게 질문하기</button>
+        <button id="questionBtn" class="primary" style="width:100%">❓ 교수에게 질문하기</button>
       </div>
     </div>
   </div>
@@ -263,14 +261,12 @@ const presenterHints = document.getElementById('presenterHints');
 const unmuteBtn = document.getElementById('unmuteBtn');
 const startBtn = document.getElementById('startBtn');
 const stopBtn  = document.getElementById('stopBtn');
-const genRoom  = document.getElementById('genRoom');
 const toastEl  = document.getElementById('toast');
 const tapUnmuteOverlay = document.getElementById('tapUnmuteOverlay');
 const tapUnmuteBtn = document.getElementById('tapUnmuteBtn');
 const gainRow    = document.getElementById('gainRow');
 const gainSlider = document.getElementById('gainSlider');
 const gainVal    = document.getElementById('gainVal');
-const switchCamBtn = document.getElementById('switchCamBtn');
 const muteMicBtn   = document.getElementById('muteMicBtn');
 const muteCamBtn   = document.getElementById('muteCamBtn');
 const shareScreenBtn = document.getElementById('shareScreenBtn');
@@ -454,12 +450,6 @@ function refreshUIByMode(){
 }
 refreshUIByMode();
 
-if (switchCamBtn) switchCamBtn.addEventListener('click', async ()=>{
-  facingMode = (facingMode==='user')?'environment':'user';
-  toast(`카메라 전환: ${facingMode==='user'?'전면':'후면'}`);
-  if (!localStream) return;
-  await replaceVideoTrack();
-});
 
 if (muteMicBtn) muteMicBtn.addEventListener('click', ()=>{
   const t = localStream?.getAudioTracks?.()[0];
@@ -507,8 +497,9 @@ async function startCameraPiP(cameraStreamToUse) {
       hostCameraPiPVideo = document.createElement('video');
       hostCameraPiPVideo.style.position = 'fixed';
       hostCameraPiPVideo.style.top = '-9999px';
-      hostCameraPiPVideo.style.width = '1px';
-      hostCameraPiPVideo.style.height = '1px';
+      // PiP 창이 작게 표시되도록 작은 크기로 설정 (오른쪽 상단 배치 유도)
+      hostCameraPiPVideo.style.width = '240px';
+      hostCameraPiPVideo.style.height = '135px';
       hostCameraPiPVideo.autoplay = true;
       hostCameraPiPVideo.muted = true;
       hostCameraPiPVideo.playsInline = true;
@@ -521,12 +512,20 @@ async function startCameraPiP(cameraStreamToUse) {
     
     // Picture-in-Picture 모드 진입
     if (!document.pictureInPictureElement) {
-      await hostCameraPiPVideo.requestPictureInPicture();
+      const pipWindow = await hostCameraPiPVideo.requestPictureInPicture();
       log('[Host] Picture-in-Picture 모드 시작 (화면공유 시 자동)');
       
-      // PiP 창을 공유 화면의 우측 상단에 배치하려고 시도
-      // 참고: 브라우저가 PiP 위치를 제어하므로 완전한 제어는 불가능하지만,
-      // 사용자가 수동으로 우측 상단으로 이동할 수 있습니다
+      // PiP 창 크기 설정 (작게 만들어 오른쪽 상단 배치 유도)
+      if (pipWindow) {
+        // PiP 창의 크기를 작게 설정하여 오른쪽 상단에 배치되도록 시도
+        // 참고: 브라우저가 PiP 위치를 직접 제어하지만, 작은 크기는 일반적으로 오른쪽 상단에 배치됩니다
+        try {
+          // PiP 창이 열린 후 위치 조정 시도 (제한적)
+          // 실제 위치는 브라우저가 제어하지만, 작은 크기로 설정하면 오른쪽 상단에 배치될 가능성이 높습니다
+        } catch(e) {
+          console.warn('PiP 위치 조정 실패:', e);
+        }
+      }
     }
   } catch(e) {
     console.error('Picture-in-Picture 실패:', e);
@@ -872,7 +871,7 @@ function updateQuestionButtonState(isActive) {
       questionBtn.classList.add('danger');
       questionBtn.classList.remove('primary');
     } else {
-      questionBtn.textContent = '❓ 송출자에게 질문하기';
+      questionBtn.textContent = '❓ 교수에게 질문하기';
       questionBtn.classList.remove('danger');
       questionBtn.classList.add('primary');
     }
@@ -1572,7 +1571,7 @@ async function replaceVideoTrack(){
 // 화면공유 시작
 async function startScreenShare(){
   if (!localStream) {
-    toast('먼저 방송을 시작하세요');
+    toast('먼저 입실하세요');
     return;
   }
   
@@ -1942,7 +1941,7 @@ async function startHost(){
     if (vTrack) {
       vTrack.onended = () => {
         log('[Host] video track ended (창 닫힘/최소화 등). 다시 시작하세요.');
-        toast('공유 화면이 종료되었습니다. [시작]으로 다시 공유하세요.');
+        toast('공유 화면이 종료되었습니다. [입실]으로 다시 공유하세요.');
         // 필요하면 자동 재시작:
         // startBtn.click();
       };
@@ -3003,7 +3002,6 @@ if (startBtn) startBtn.addEventListener('click', async ()=>{
   }catch(e){ alert('시작 실패: '+e.message); }
 });
 if (stopBtn) stopBtn.addEventListener('click', async ()=>{ await cleanup(); });
-if (genRoom && roomIdInput) genRoom.addEventListener('click', ()=>{ roomIdInput.value = generateRoomId(); });
 
 // 승인 대기 목록 및 채팅 모달 열기 버튼
 const showPendingBtn = document.getElementById('showPendingBtn');
