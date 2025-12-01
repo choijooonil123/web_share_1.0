@@ -386,6 +386,11 @@ let guestQuestionPiPVideo = null;  // 게스트 질문 PiP용 비디오 엘리�
 let currentQuestionGuestId = null;  // 현재 질문 중인 게스트 ID
 let hostPiPWasActiveBeforeQuestion = false;  // 질문 시작 전 교수 PiP 활성화 여부
 let isQuestionRequestActive = false;  // 질문 요청 활성화 여부 (토글용)
+let broadcastVideoTracks = [];      // 방송 모드 비디오 트랙 추적
+let broadcastScreenTrack = null;    // 방송 모드 화면공유 트랙
+let broadcastCameraTrack = null;    // 방송 모드 카메라 트랙
+let meetingScreenTrack = null;      // 미팅 모드 화면공유 트랙 (학생용)
+let meetingCameraTrack = null;      // 미팅 모드 카메라 트랙 (학생용)
 let firebaseListeners = {           // Firebase 리스너 정리를 위한 참조
   offers: null,
   answers: null,
@@ -1769,14 +1774,15 @@ async function startScreenShare(){
           }
         });
       } else {
-        // 미팅 모드: 기존 트랙을 화면공유로 교체
+        // 미팅 모드: 화면공유 트랙과 카메라 트랙을 함께 전송 (카메라 영상이 멈추지 않도록)
         
         // 기존 카메라 트랙을 중지하기 전에 별도 카메라 스트림 획득
+        let cameraTrackForPip = null;
         try {
           const cameraStream = await getCameraStream();
-          const cameraTrack = cameraStream.getVideoTracks()[0];
-          if (cameraTrack) {
-            hostCameraStream = new MediaStream([cameraTrack]);
+          cameraTrackForPip = cameraStream.getVideoTracks()[0];
+          if (cameraTrackForPip) {
+            hostCameraStream = new MediaStream([cameraTrackForPip]);
             log('[교수] 화면공유 모드: 별도 카메라 스트림 획득 완료');
             
             // 화면공유 트랙에서 공유되는 화면 정보 가져오기
@@ -1799,30 +1805,65 @@ async function startScreenShare(){
         // 화면공유 트랙 추가
         localStream.addTrack(screenTrack);
         
-        // 모든 연결에 트랙 교체
+        // 카메라 트랙도 localStream에 추가 (미리보기용)
+        if (cameraTrackForPip) {
+          localStream.addTrack(cameraTrackForPip);
+        }
+        
+        // 모든 연결에 화면공유 트랙과 카메라 트랙을 함께 전송
         peerConnections.forEach((_pc, vid) => {
-          const sender = _pc.getSenders().find(s => s.track && s.track.kind === 'video');
-          if (sender && screenTrack) {
-            // 기존 트랙이 있으면 교체, 없으면 추가
-            if (sender.track) {
-              sender.replaceTrack(screenTrack).then(() => {
+          try {
+            // 기존 비디오 트랙 찾기
+            const existingSenders = _pc.getSenders();
+            const videoSender = existingSenders.find(s => s.track && s.track.kind === 'video');
+            
+            if (videoSender && videoSender.track) {
+              // 기존 트랙을 화면공유 트랙으로 교체
+              videoSender.replaceTrack(screenTrack).then(() => {
                 log(`[교수] 학생 ${vid}에게 화면공유 트랙 교체 완료`);
+                
+                // 카메라 트랙도 별도로 추가 (학생이 두 개의 비디오 트랙을 받을 수 있도록)
+                if (cameraTrackForPip) {
+                  const cameraStream = new MediaStream([cameraTrackForPip]);
+                  _pc.addTrack(cameraTrackForPip, cameraStream);
+                  log(`[교수] 학생 ${vid}에게 카메라 트랙도 추가 (화면공유와 함께)`);
+                }
               }).catch(e => {
                 console.warn(`[교수] 화면공유 트랙 교체 실패 (${vid}):`, e);
                 // 교체 실패 시 재시도: 트랙 제거 후 추가
                 try {
-                  sender.track.stop();
-                  _pc.addTrack(screenTrack, new MediaStream([screenTrack]));
-                  log(`[교수] 학생 ${vid}에게 화면공유 트랙 재시도 완료`);
+                  videoSender.track.stop();
+                  const screenStream = new MediaStream([screenTrack]);
+                  _pc.addTrack(screenTrack, screenStream);
+                  
+                  // 카메라 트랙도 추가
+                  if (cameraTrackForPip) {
+                    const cameraStream = new MediaStream([cameraTrackForPip]);
+                    _pc.addTrack(cameraTrackForPip, cameraStream);
+                  }
+                  
+                  log(`[교수] 학생 ${vid}에게 화면공유 및 카메라 트랙 재시도 완료`);
                 } catch(e2) {
                   console.error(`[교수] 화면공유 트랙 재시도 실패 (${vid}):`, e2);
                 }
               });
             } else {
-              // 트랙이 없으면 추가
-              _pc.addTrack(screenTrack, new MediaStream([screenTrack]));
+              // 트랙이 없으면 화면공유 트랙 추가
+              const screenStream = new MediaStream([screenTrack]);
+              _pc.addTrack(screenTrack, screenStream);
+              
+              // 카메라 트랙도 추가
+              if (cameraTrackForPip) {
+                const cameraStream = new MediaStream([cameraTrackForPip]);
+                _pc.addTrack(cameraTrackForPip, cameraStream);
+                log(`[교수] 학생 ${vid}에게 카메라 트랙도 추가 (화면공유와 함께)`);
+              }
+              
               log(`[교수] 학생 ${vid}에게 화면공유 트랙 추가 완료`);
             }
+          } catch(e) {
+            console.warn(`[교수] 학생 ${vid}에게 트랙 추가 실패:`, e);
+            log(`[교수] 학생 ${vid}에게 트랙 추가 실패: ` + e.message);
           }
         });
       }
@@ -2818,6 +2859,10 @@ async function startGuest(){
   broadcastScreenTrack = null;
   broadcastCameraTrack = null;
   
+  // 미팅 모드에서 비디오 트랙 추적 초기화
+  meetingScreenTrack = null;
+  meetingCameraTrack = null;
+  
   pc.ontrack = (ev)=>{
     const stream = ev.streams[0];
     const track = ev.track;
@@ -3147,7 +3192,7 @@ async function startGuest(){
       if (isiOS) showIOSUnmuteOverlayIfNeeded(); else unmuteBtn.style.display='inline-block';
     }else{
       // 미팅 모드: 교수의 스트림을 표시
-      // 학생은 교수와만 연결되므로 하나의 비디오만 표시
+      // 화면공유 트랙과 카메라 트랙을 모두 처리 (카메라 영상이 멈추지 않도록)
       const hostVideoId = 'host';
       let videoEl = remoteVideos.get(hostVideoId);
       if (!videoEl) {
@@ -3155,88 +3200,98 @@ async function startGuest(){
         remoteVideos.set(hostVideoId, videoEl);
       }
       
-      // 스트림이 변경되었거나 트랙이 업데이트된 경우 업데이트
-      const currentStream = videoEl.srcObject;
+      // 트랙 label로 화면공유와 카메라 구분
       const isScreenTrack = track.label && (
         track.label.toLowerCase().includes('screen') || 
         track.label.toLowerCase().includes('화면') ||
         track.label.toLowerCase().includes('display') ||
         track.label.toLowerCase().includes('monitor') ||
-        track.label.toLowerCase().includes('window')
+        track.label.toLowerCase().includes('window') ||
+        track.label.toLowerCase().includes('desktop')
       );
       
-      // 기존 스트림의 비디오 트랙 확인
-      let needsUpdate = false;
-      if (!currentStream || currentStream !== stream) {
-        // 새로운 스트림인 경우
-        needsUpdate = true;
-      } else {
-        // 기존 스트림이지만 트랙이 변경되었는지 확인
-        const existingTracks = currentStream.getVideoTracks();
-        const hasThisTrack = existingTracks.some(t => t.id === track.id);
-        const hasDifferentTrack = existingTracks.some(t => t.id !== track.id && t.readyState === 'live');
-        
-        if (!hasThisTrack || hasDifferentTrack) {
-          // 새 트랙이 없거나 다른 트랙이 있는 경우 업데이트 필요
-          needsUpdate = true;
+      if (track.kind === 'video') {
+        // 비디오 트랙 처리
+        if (isScreenTrack) {
+          // 화면공유 트랙: 메인 비디오로 표시
+          meetingScreenTrack = track;
+          const screenStream = new MediaStream([track]);
           
-          // 기존 비디오 트랙 제거 (화면공유로 교체되는 경우)
-          if (isScreenTrack && hasDifferentTrack) {
-            existingTracks.forEach(t => {
-              if (t.id !== track.id && t.readyState === 'live') {
-                currentStream.removeTrack(t);
-                t.stop();
-              }
-            });
-          }
-          
-          // 새 트랙 추가
-          if (!hasThisTrack) {
-            currentStream.addTrack(track);
-          }
-        }
-      }
-      
-      // 비디오 엘리먼트 업데이트 및 재생
-      if (needsUpdate) {
-        // 비디오 엘리먼트 강제 업데이트
-        const wasPlaying = !videoEl.paused;
-        videoEl.srcObject = null;
-        videoEl.srcObject = stream;
-        
-        // 비디오 재생
-        (async ()=>{ 
-          try{ 
-            videoEl.setAttribute('playsinline',''); 
-            videoEl.setAttribute('webkit-playsinline',''); 
-            await videoEl.play();
-            if (isScreenTrack) {
-              log('[Guest] 교수 화면공유 수신 및 표시');
-            } else {
-              log('[Guest] 교수 비디오 트랙 업데이트');
-            }
-          }catch(e){
-            console.warn('[Guest] 비디오 재생 실패:', e);
-            // 재시도
-            setTimeout(async () => {
-              try {
+          // 기존 스트림 확인
+          const currentStream = videoEl.srcObject;
+          if (!currentStream || currentStream !== screenStream) {
+            videoEl.srcObject = screenStream;
+            (async ()=>{ 
+              try{ 
+                videoEl.setAttribute('playsinline',''); 
+                videoEl.setAttribute('webkit-playsinline',''); 
                 await videoEl.play();
-              } catch(e2) {
-                console.warn('[Guest] 비디오 재생 재시도 실패:', e2);
+                log('[Guest] 교수 화면공유 수신 및 표시');
+              }catch(e){
+                console.warn('[Guest] 화면공유 재생 실패:', e);
+                setTimeout(async () => {
+                  try {
+                    await videoEl.play();
+                  } catch(e2) {
+                    console.warn('[Guest] 화면공유 재생 재시도 실패:', e2);
+                  }
+                }, 500);
               }
-            }, 500);
+            })();
           }
-        })();
-      } else {
-        // 트랙이 이미 있는 경우에도 재생 상태 확인
-        if (videoEl.paused) {
-          videoEl.play().catch(e => {
-            console.warn('[Guest] 비디오 재생 실패:', e);
-          });
+          
+          // 카메라 트랙이 이미 있으면 계속 재생되도록 유지
+          if (meetingCameraTrack && meetingCameraTrack.readyState === 'live') {
+            // 카메라 트랙은 별도로 유지 (PiP나 별도 표시용)
+            log('[Guest] 화면공유 수신 - 카메라 트랙은 계속 유지됨');
+          }
+        } else {
+          // 카메라 트랙: 별도로 저장하고 계속 재생
+          meetingCameraTrack = track;
+          const cameraStream = new MediaStream([track]);
+          
+          // 화면공유 트랙이 없으면 메인 비디오로 표시
+          if (!meetingScreenTrack) {
+            if (videoEl.srcObject !== cameraStream) {
+              videoEl.srcObject = cameraStream;
+              (async ()=>{ 
+                try{ 
+                  videoEl.setAttribute('playsinline',''); 
+                  videoEl.setAttribute('webkit-playsinline',''); 
+                  await videoEl.play();
+                  log('[Guest] 교수 카메라 수신 및 표시');
+                }catch(e){
+                  console.warn('[Guest] 카메라 재생 실패:', e);
+                  setTimeout(async () => {
+                    try {
+                      await videoEl.play();
+                    } catch(e2) {
+                      console.warn('[Guest] 카메라 재생 재시도 실패:', e2);
+                    }
+                  }, 500);
+                }
+              })();
+            }
+          } else {
+            // 화면공유 트랙이 있으면 카메라는 별도로 유지 (PiP나 별도 표시 가능)
+            log('[Guest] 교수 카메라 트랙 수신 (화면공유와 함께)');
+            
+            // 카메라 트랙이 계속 재생되도록 별도 스트림 유지
+            // 필요시 PiP로 표시할 수 있음
+          }
+          
+          // 카메라 트랙 종료 감지
+          track.onended = () => {
+            if (meetingCameraTrack === track) {
+              meetingCameraTrack = null;
+              log('[Guest] 교수 카메라 트랙 종료');
+            }
+          };
         }
+      } else if (track.kind === 'audio') {
+        // 오디오 트랙 처리
+        audioMirror.srcObject = stream;
       }
-      
-      audioMirror.srcObject = stream;
       
       // 학생이 입실 허용되면 교수 화면을 전체화면으로 표시
       if (fullscreenVideo && fsVideo) {
