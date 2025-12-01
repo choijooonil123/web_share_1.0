@@ -392,6 +392,7 @@ let firebaseListeners = {           // Firebase 리스너 정리를 위한 참�
   questionRequest: null  // 질문 요청 상태 리스너
 };
 let myUserId = '';                  // 내 사용자 ID (채팅용)
+let studentName = '';               // 학생 이름 (입력한 이름)
 
 /* ---------------- Utils ---------------- */
 // 강제 재생 보조(모바일 자동재생 차단 우회)
@@ -908,7 +909,7 @@ async function sendChatMessage(){
   
   const chatData = {
     senderId: myUserId,
-    senderName: role === 'host' ? '교수' : `학생 ${myUserId.substring(0,6)}`,
+    senderName: role === 'host' ? '교수' : (studentName ? studentName : `학생 ${myUserId.substring(0,6)}`),
     message: trimmedMessage,
     timestamp: Date.now()
   };
@@ -930,7 +931,7 @@ async function sendQuestionNotification(){
     return;
   }
   
-  const guestName = `학생 ${myUserId.substring(0,6)}`;
+  const guestName = studentName ? studentName : `학생 ${myUserId.substring(0,6)}`;
   
   try {
     if (isQuestionRequestActive) {
@@ -2051,6 +2052,15 @@ async function startHost(){
       }
     }
     
+    // 교수(호스트)의 마이크는 항상 켜져 있어야 함
+    if (localStream) {
+      const hostAudioTrack = localStream.getAudioTracks()[0];
+      if (hostAudioTrack) {
+        hostAudioTrack.enabled = true; // 항상 활성화
+        log('[Host] 교수 마이크 항상 활성화 상태 유지');
+      }
+    }
+    
     const vTrack = localStream?.getVideoTracks?.()[0];
     if (vTrack) {
       vTrack.onended = () => {
@@ -2105,6 +2115,22 @@ async function startHost(){
     });
 
     startBtn.disabled = true; stopBtn.disabled = false; isRunning=true;
+    
+    // 교수의 마이크가 항상 켜져 있도록 주기적으로 확인
+    let ensureHostMicEnabled = null;
+    if (localStream) {
+      ensureHostMicEnabled = setInterval(() => {
+        if (localStream && isRunning) {
+          const hostAudioTrack = localStream.getAudioTracks()[0];
+          if (hostAudioTrack && !hostAudioTrack.enabled) {
+            hostAudioTrack.enabled = true;
+            console.log('[Host] 교수 마이크가 꺼져 있어서 다시 켰습니다');
+          }
+        } else if (!isRunning) {
+          if (ensureHostMicEnabled) clearInterval(ensureHostMicEnabled);
+        }
+      }, 1000); // 1초마다 확인
+    }
     
     // 호스트가 방을 만든 후 역할을 게스트로 변경
     role = 'guest';
@@ -2676,6 +2702,15 @@ async function startGuest(){
     roomId = (roomIdInput ? roomIdInput.value||'' : '').replace(/\s+/g,''); if(!roomId){ roomId=generateRoomId(); if(roomIdInput) roomIdInput.value=roomId; }
     viewerId = randomId(8);
     myUserId = viewerId;
+    
+    // 학생 이름 가져오기
+    if (studentNameInput && studentNameInput.value.trim()) {
+      studentName = studentNameInput.value.trim();
+      log(`[Guest] 학생 이름: ${studentName}`);
+    } else {
+      studentName = ''; // 이름이 없으면 빈 문자열
+    }
+    
     pc = createPeer();
 
     // 트랜시버/로컬 트랙 구성
