@@ -82,7 +82,7 @@
 </head>
 <body>
 <header>
-  <h1 style="margin:0;font-size:18px;margin-right:auto">김천대 본관 6층 사무엘실 1</h1>
+  <h1 style="margin:0;font-size:18px;margin-right:auto">김천대 본관 6층 사무엘실</h1>
   
   <div class="row" style="gap:8px;align-items:center">
     <label style="margin:0;display:flex;align-items:center;gap:6px">
@@ -429,7 +429,7 @@ if (roleInputs.length > 0) {
 
 // 학생 이름 입력 시 자동으로 학생 역할 선택
 if (studentNameInput) {
-  studentNameInput.addEventListener('input', ()=>{
+  if (studentNameInput) studentNameInput.addEventListener('input', ()=>{
     if (studentNameInput.value.trim().length > 0) {
       const guestInput = document.querySelector('input[name="role"][value="guest"]');
       if (guestInput && !guestInput.checked) {
@@ -504,7 +504,7 @@ if (muteMicBtn) muteMicBtn.addEventListener('click', ()=>{
 
 // 소리 ON/OFF 버튼 (원격 오디오 제어)
 if (audioToggleBtn) {
-  audioToggleBtn.addEventListener('click', async ()=>{
+  if (audioToggleBtn) audioToggleBtn.addEventListener('click', async ()=>{
     let isCurrentlyMuted = true;
     
     if (comm === 'meeting') {
@@ -729,7 +729,7 @@ if (openBrowserWindowBtn) {
 }
 
 if (gainSlider) {
-  gainSlider.addEventListener('input', () => {
+  if (gainSlider) gainSlider.addEventListener('input', () => {
     if (gainNode) {
       const v = parseFloat(gainSlider.value);
       gainNode.gain.value = v;
@@ -830,8 +830,8 @@ function showIOSUnmuteOverlayIfNeeded() {
     unmuteBtn.style.display = 'none';
   }
 }
-tapUnmuteBtn.addEventListener('click', enableAudioPlayback);
-unmuteBtn.addEventListener('click', enableAudioPlayback);
+if (tapUnmuteBtn) tapUnmuteBtn.addEventListener('click', enableAudioPlayback);
+if (unmuteBtn) unmuteBtn.addEventListener('click', enableAudioPlayback);
 
 // 내 미리보기 토글
 if (togglePreviewBtn) togglePreviewBtn.addEventListener('click', ()=>{
@@ -1039,14 +1039,14 @@ if (chatInput) {
 
 // 시청자 질문하기 버튼
 if (questionBtn) {
-  questionBtn.addEventListener('click', () => {
+  if (questionBtn) questionBtn.addEventListener('click', () => {
     // 비디오 화면의 질문하기 버튼과 동일하게 작동 (토글 기능)
     sendQuestionNotification();
   });
 }
 
 // 전체화면 닫기 버튼
-fsCloseBtn.addEventListener('click', () => {
+if (fsCloseBtn) fsCloseBtn.addEventListener('click', () => {
   try {
     fullscreenVideo.classList.remove('show');
     fsVideo.srcObject = null;
@@ -1058,7 +1058,7 @@ fsCloseBtn.addEventListener('click', () => {
 
 // 전체화면 질문 버튼
 if (fullscreenQuestionBtn) {
-  fullscreenQuestionBtn.addEventListener('click', () => {
+  if (fullscreenQuestionBtn) fullscreenQuestionBtn.addEventListener('click', () => {
     sendQuestionNotification();
   });
 }
