@@ -142,7 +142,7 @@
     </div>
 
     <!-- 추가 컨트롤 버튼 -->
-    <div class="row" style="margin-top:10px; display:none" id="additionalControls">
+    <div class="row" style="margin-top:10px" id="additionalControls">
       <button id="shareScreenBtn" style="display:none">화면공유</button>
       <button id="openBrowserWindowBtn" style="display:none">브라우저 창 열기</button>
       <button id="openCameraPiPBtn" style="display:none">카메라 PiP</button>
@@ -425,7 +425,16 @@ function refreshUIByMode(){
   // 미팅 모드: 시작 후에는 항상 카메라/마이크 컨트롤 표시
   if (meetingVideos) meetingVideos.classList.remove('hidden');
   if (cameraCtrl) cameraCtrl.style.display = isRunning ? 'flex' : 'none';
-  if (shareScreenBtn) shareScreenBtn.style.display = isRunning ? 'inline-block' : 'none';
+  
+  // 화면공유 버튼: 호스트와 게스트 모두 시작 후에 표시
+  if (shareScreenBtn) {
+    shareScreenBtn.style.display = isRunning ? 'inline-block' : 'none';
+    // 화면공유 중이 아닐 때는 기본 텍스트로 설정
+    if (!isScreenSharing && shareScreenBtn.textContent === '화면공유 종료') {
+      shareScreenBtn.textContent = '화면공유';
+      shareScreenBtn.style.background = '';
+    }
+  }
   
   // 호스트 카메라 PiP 버튼 (호스트만, 카메라 스트림이 있을 때, PiP 지원 브라우저)
   if (isHost && openCameraPiPBtn) {
