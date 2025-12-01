@@ -1979,11 +1979,15 @@ function addPending(vid, data){
     return;
   }
   
+  // 학생 이름 가져오기 (offer 데이터에서)
+  const studentName = (data && data.studentName) ? data.studentName : '';
+  const displayName = studentName ? studentName : `학생 ${vid.substring(0,6)}`;
+  
   const li = document.createElement('li');
   li.id = `pending-${vid}`;
   li.innerHTML = `
     <div>
-      <div><b>학생</b> <span class="tag">${vid}</span></div>
+      <div><b>${displayName}</b> <span class="tag">${vid.substring(0,6)}</span></div>
       <div class="muted" style="font-size:12px">오퍼 수신</div>
     </div>
     <div class="row">
@@ -2643,18 +2647,48 @@ async function acceptGuest(vid, data, li){
           videoEl = createRemoteVideoElement(vid, `학생 ${vid.substring(0,6)}`);
           remoteVideos.set(vid, videoEl);
         }
-        if (videoEl.srcObject !== stream) {
+        
+        // 스트림이 변경되었거나 트랙이 업데이트된 경우
+        const currentStream = videoEl.srcObject;
+        const needsUpdate = !currentStream || currentStream !== stream;
+        
+        if (needsUpdate) {
           videoEl.srcObject = stream;
-          // 비디오는 음소거 상태로 재생 (오디오는 트랙 레벨에서 제어)
-          videoEl.muted = false;
-          (async ()=>{ 
-            try{ 
-              videoEl.setAttribute('playsinline',''); 
-              videoEl.setAttribute('webkit-playsinline',''); 
-              await videoEl.play(); 
-            }catch(e){} 
-          })();
+        } else if (track.kind === 'video') {
+          // 기존 스트림이지만 트랙이 업데이트되었을 수 있음
+          const existingTracks = currentStream.getVideoTracks();
+          const hasThisTrack = existingTracks.some(t => t.id === track.id);
+          if (!hasThisTrack) {
+            // 새 트랙이 스트림에 없으면 추가
+            currentStream.addTrack(track);
+            // 비디오 엘리먼트 강제 업데이트
+            videoEl.srcObject = null;
+            videoEl.srcObject = currentStream;
+          }
         }
+        
+        // 비디오 재생 (항상 재생 상태 유지)
+        (async ()=>{ 
+          try{ 
+            videoEl.setAttribute('playsinline',''); 
+            videoEl.setAttribute('webkit-playsinline',''); 
+            videoEl.muted = false;
+            if (videoEl.paused || needsUpdate) {
+              await videoEl.play();
+            }
+          }catch(e){
+            console.warn(`[교수] 학생 ${vid.substring(0,6)} 비디오 재생 실패:`, e);
+            // 재시도
+            setTimeout(async () => {
+              try {
+                if (videoEl && !videoEl.paused) return;
+                await videoEl.play();
+              } catch(e2) {
+                console.warn(`[교수] 학생 ${vid.substring(0,6)} 비디오 재생 재시도 실패:`, e2);
+              }
+            }, 500);
+          }
+        })();
       }
     };
 
@@ -3238,7 +3272,11 @@ async function startGuest(){
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
   const offerRef = db.ref(`rooms/${roomId}/offers/${viewerId}`);
-  await offerRef.set({ sdp: offer.sdp, ts: Date.now() }).catch(e=>{ alert('오퍼 업로드 실패: '+e.message); });
+  await offerRef.set({ 
+    sdp: offer.sdp, 
+    ts: Date.now(),
+    studentName: studentName || '' // 학생 이름 포함
+  }).catch(e=>{ alert('오퍼 업로드 실패: '+e.message); });
 
   const answersRef = db.ref(`rooms/${roomId}/answers/${viewerId}`);
   firebaseListeners.answers = answersRef;
