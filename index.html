@@ -3326,7 +3326,12 @@ async function startGuest(){
           }
         })();
       }
-      if (isiOS) showIOSUnmuteOverlayIfNeeded(); else unmuteBtn.style.display='inline-block';
+      if (isiOS) {
+        showIOSUnmuteOverlayIfNeeded();
+      } else if (unmuteBtn) {
+        // 일부 레이아웃에서는 unmuteBtn이 없을 수 있으므로 존재 여부를 확인
+        unmuteBtn.style.display='inline-block';
+      }
     }
     log(`[${role}] tracks: ` + stream.getTracks().map(t=>t.kind).join(', '));
   };
