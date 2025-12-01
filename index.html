@@ -107,7 +107,7 @@
     <button id="audioToggleBtn" style="display:none;padding:6px 12px;font-size:13px">🔊 소리 ON</button>
     <button id="muteCamBtn" style="display:none;padding:6px 12px;font-size:13px">📹 카메라 ON</button>
     <button id="shareScreenBtn" style="display:none;padding:6px 12px;font-size:13px">🖥️ 화면공유 ON</button>
-    <button id="openCameraPiPBtn" style="display:none;padding:6px 12px;font-size:13px" title="호스트 카메라 Picture-in-Picture 모드">🖼️ PiP</button>
+    <button id="openCameraPiPBtn" style="display:none;padding:6px 12px;font-size:13px" title="교수 카메라 Picture-in-Picture 모드">🖼️ PiP</button>
     <button class="primary" id="startBtn" type="button" style="padding:6px 12px;font-size:13px;cursor:pointer;position:relative;z-index:10">입실</button>
     <button class="danger" id="stopBtn" type="button" disabled style="padding:6px 12px;font-size:13px;cursor:pointer;position:relative;z-index:10">퇴실</button>
   </div>
@@ -126,7 +126,7 @@
     <!-- 미팅 모드: 다자간 비디오 그리드 -->
     <div id="meetingVideos">
       <div class="meeting-grid" id="remoteVideosGrid">
-        <!-- 호스트 미리보기 화면 (시청자 화면과 동일한 크기로 표시) -->
+        <!-- 교수 미리보기 화면 (시청자 화면과 동일한 크기로 표시) -->
         <div class="local-preview-wrapper remote-video-wrapper" id="localPreviewWrapper" style="display:none">
           <small class="muted">나(미리보기 · 항상 음소거)</small>
           <video id="localPreview" autoplay playsinline webkit-playsinline muted controls></video>
@@ -307,8 +307,8 @@ const logBtn = document.getElementById('logBtn');
 
 /* ---------------- Modal Controls ---------------- */
 function showPendingModal() {
-  // addPending()이 호출되었다는 것은 호스트가 게스트의 오퍼를 받았다는 의미
-  // isRunning이 true이면 호스트가 방을 만든 상태이므로 모달 표시
+  // addPending()이 호출되었다는 것은 교수가 학생의 오퍼를 받았다는 의미
+  // isRunning이 true이면 교수가 방을 만든 상태이므로 모달 표시
   if (pendingModal && isRunning) {
     pendingModal.classList.add('show');
   }
@@ -369,7 +369,7 @@ let roomId = '';
 let viewerId = '';
 let isRunning = false;
 let pc = null;                      // 게스트용 단일 연결
-let peerConnections = new Map();    // 호스트용: 게스트 ID -> PeerConnection
+let peerConnections = new Map();    // 교수용: 학생 ID -> PeerConnection
 let remoteVideos = new Map();       // 게스트 ID -> video 엘리먼트
 let guestAudioTracks = new Map();   // 게스트 ID -> 오디오 트랙 (음소거 제어용)
 let localStream = null;            // 내가 보내는 스트림(모드별 구성)
@@ -382,7 +382,7 @@ let hostCameraWindow = null;        // 호스트 카메라 별도 창
 let hostCameraPiPVideo = null;      // 호스트 카메라 PiP용 비디오 엘리먼트
 let guestQuestionPiPVideo = null;  // 게스트 질문 PiP용 비디오 엘리먼트
 let currentQuestionGuestId = null;  // 현재 질문 중인 게스트 ID
-let hostPiPWasActiveBeforeQuestion = false;  // 질문 시작 전 호스트 PiP 활성화 여부
+let hostPiPWasActiveBeforeQuestion = false;  // 질문 시작 전 교수 PiP 활성화 여부
 let isQuestionRequestActive = false;  // 질문 요청 활성화 여부 (토글용)
 let firebaseListeners = {           // Firebase 리스너 정리를 위한 참조
   offers: null,
@@ -445,10 +445,10 @@ function refreshUIByMode(){
   const isHost = role==='host';
   const isGuest = role==='guest';
 
-  // 역할 선택 라디오 버튼: 호스트가 방을 만든 후에는 비활성화하고 게스트로 고정
+  // 역할 선택 라디오 버튼: 교수가 방을 만든 후에는 비활성화하고 학생으로 고정
   if (roleInputs.length > 0) {
     roleInputs.forEach(r => {
-      // 호스트가 방을 만든 후(isRunning && role이 guest로 변경됨)에는 비활성화
+      // 교수가 방을 만든 후(isRunning && role이 guest로 변경됨)에는 비활성화
       if (isRunning && role === 'guest') {
         r.disabled = true;
       } else {
@@ -462,7 +462,7 @@ function refreshUIByMode(){
   if (muteCamBtn) muteCamBtn.style.display = isRunning ? 'inline-block' : 'none';
   if (shareScreenBtn) shareScreenBtn.style.display = isRunning ? 'inline-block' : 'none';
   
-  // 호스트 전용 UI 요소
+  // 교수 전용 UI 요소
   if (openCameraPiPBtn) {
     if (isHost && isRunning && role === 'host') {
       const hasCameraForPiP = (hostCameraStream) || (localStream && localStream.getVideoTracks().length > 0);
@@ -611,7 +611,7 @@ async function startCameraPiP(cameraStreamToUse) {
   }
   
   if (!cameraStreamToUse) {
-    console.warn('[Host] 카메라 스트림 없음', { hostCameraStream, localStream });
+    console.warn('[교수] 카메라 스트림 없음', { hostCameraStream, localStream });
     return;
   }
   
@@ -636,7 +636,7 @@ async function startCameraPiP(cameraStreamToUse) {
     // Picture-in-Picture 모드 진입
     if (!document.pictureInPictureElement) {
       await hostCameraPiPVideo.requestPictureInPicture();
-      log('[Host] Picture-in-Picture 모드 시작 (화면공유 시 자동)');
+      log('[교수] Picture-in-Picture 모드 시작 (화면공유 시 자동)');
       
       // PiP 창을 공유 화면의 우측 상단에 배치하려고 시도
       // 참고: 브라우저가 PiP 위치를 제어하므로 완전한 제어는 불가능하지만,
@@ -644,11 +644,11 @@ async function startCameraPiP(cameraStreamToUse) {
     }
   } catch(e) {
     console.error('Picture-in-Picture 실패:', e);
-    log('[Host] Picture-in-Picture 실패: ' + e.message);
+    log('[교수] Picture-in-Picture 실패: ' + e.message);
   }
 }
 
-// 호스트 카메라 Picture-in-Picture 모드 (수동 버튼)
+// 교수 카메라 Picture-in-Picture 모드 (수동 버튼)
 if (openCameraPiPBtn) {
   openCameraPiPBtn.addEventListener('click', async () => {
     const cameraStreamToUse = hostCameraStream || (localStream ? new MediaStream([localStream.getVideoTracks()[0]]) : null);
@@ -663,7 +663,7 @@ if (openCameraPiPBtn) {
         // 이미 PiP 모드면 종료
         await document.exitPictureInPicture();
         toast('Picture-in-Picture 모드 종료');
-        log('[Host] Picture-in-Picture 모드 종료');
+        log('[교수] Picture-in-Picture 모드 종료');
       } else {
         await startCameraPiP(cameraStreamToUse);
         toast('Picture-in-Picture 모드 시작');
@@ -678,10 +678,10 @@ if (openCameraPiPBtn) {
 // PiP 종료 감지
 if (document.pictureInPictureEnabled) {
   document.addEventListener('leavepictureinpicture', () => {
-    // 호스트 카메라 PiP 종료 감지
+    // 교수 카메라 PiP 종료 감지
     if (hostCameraPiPVideo && document.pictureInPictureElement === hostCameraPiPVideo) {
       hostCameraPiPVideo.srcObject = null;
-      log('[Host] Picture-in-Picture 모드 종료됨');
+      log('[교수] Picture-in-Picture 모드 종료됨');
     }
     // 게스트 질문 PiP 종료 감지
     if (guestQuestionPiPVideo && document.pictureInPictureElement === guestQuestionPiPVideo) {
@@ -701,7 +701,7 @@ if (openBrowserWindowBtn) {
     
     if (!streamToUse || !roomId) {
       toast('카메라 스트림이 없습니다');
-      console.warn('[Host] 스트림 없음', { hostCameraStream, localStream, sourceMode, roomId });
+      console.warn('[교수] 스트림 없음', { hostCameraStream, localStream, sourceMode, roomId });
       return;
     }
     
@@ -720,7 +720,7 @@ if (openBrowserWindowBtn) {
         return;
       }
       
-      log('[Host] 새 브라우저 창 열기: ' + currentUrl.toString());
+      log('[교수] 새 브라우저 창 열기: ' + currentUrl.toString());
       toast('새 브라우저 창이 열렸습니다. 다른 디스플레이로 이동할 수 있습니다.');
     } catch(e) {
       console.error('새 브라우저 창 열기 실패:', e);
@@ -957,7 +957,7 @@ async function sendQuestionNotification(){
       // 채팅 메시지 전송
       await db.ref(`rooms/${roomId}/chat`).push(chatData);
       
-      // 질문 요청 상태를 Firebase에 저장 (호스트가 깜박임 표시를 위해)
+      // 질문 요청 상태를 Firebase에 저장 (교수가 깜박임 표시를 위해)
       await db.ref(`rooms/${roomId}/questionRequests/${myUserId}`).set({
         timestamp: Date.now(),
         status: 'pending'
@@ -1095,11 +1095,11 @@ async function getScreenStream(){
   try{
     return await navigator.mediaDevices.getDisplayMedia({ video:true, audio:true });
   }catch(e){
-    log('[Host] getDisplayMedia with audio failed, retry video-only');
+    log('[교수] getDisplayMedia with audio failed, retry video-only');
     try {
       return await navigator.mediaDevices.getDisplayMedia({ video:true }); // 재시도
     } catch(e2) {
-      log('[Host] 화면공유 실패: ' + e2.message);
+      log('[교수] 화면공유 실패: ' + e2.message);
       toast('화면공유 권한을 확인하세요');
       throw e2;
     }
@@ -1135,10 +1135,10 @@ async function makeAmplifiedStreamFrom(sourceStream, fallbackUseMic=true){
   return outputAudioTrack ? new MediaStream([...videoTracks, outputAudioTrack]) : new MediaStream([...videoTracks]);
 }
 
-/* ---------------- 호스트 카메라 별도 창 ---------------- */
+/* ---------------- 교수 카메라 별도 창 ---------------- */
 function openHostCameraWindow(cameraStream, isScreenShareMode = false, screenInfo = null) {
   if (!cameraStream || !cameraStream.getVideoTracks()[0]) {
-    log('[Host] 카메라 스트림이 없어 별도 창을 열 수 없습니다');
+    log('[교수] 카메라 스트림이 없어 별도 창을 열 수 없습니다');
     return;
   }
   
@@ -1230,7 +1230,7 @@ function openHostCameraWindow(cameraStream, isScreenShareMode = false, screenInf
       left: 0;
     }
     .drag-header {
-      /* 호스트 카메라 별도 창에서는 영상만 보이도록 헤더를 완전히 숨김 */
+      /* 교수 카메라 별도 창에서는 영상만 보이도록 헤더를 완전히 숨김 */
       display: none !important;
     }
     .drag-header .title {
@@ -1351,7 +1351,7 @@ function openHostCameraWindow(cameraStream, isScreenShareMode = false, screenInf
   <div class="video-container">
     <video id="cameraVideo" autoplay playsinline muted></video>
     <div class="drag-header" id="dragHeader">
-      <div class="title">호스트 카메라</div>
+      <div class="title">교수 카메라</div>
       <div class="header-buttons">
         <button class="header-btn" id="fullscreenBtn">⛶ 전체화면</button>
         <button class="close-btn" id="closeBtn" title="닫기">×</button>
@@ -1404,7 +1404,7 @@ function openHostCameraWindow(cameraStream, isScreenShareMode = false, screenInf
           }
         } catch(e) {
           // 보안 정책으로 인해 접근 불가능할 수 있음
-          console.warn('[Host] CONTENT AREA 최적화 실패:', e);
+          console.warn('[교수] CONTENT AREA 최적화 실패:', e);
         }
       };
       
@@ -1418,7 +1418,7 @@ function openHostCameraWindow(cameraStream, isScreenShareMode = false, screenInf
         });
       }
     } catch(e) {
-      console.warn('[Host] CONTENT AREA 최적화 설정 실패:', e);
+      console.warn('[교수] CONTENT AREA 최적화 설정 실패:', e);
     }
     
     // 스트림 설정 (문서 로드 후)
@@ -1428,11 +1428,11 @@ function openHostCameraWindow(cameraStream, isScreenShareMode = false, screenInf
         if (video && cameraStream) {
           video.srcObject = cameraStream;
           video.play().catch(e => {
-            console.warn('[Host] 별도 창 비디오 재생 실패:', e);
+            console.warn('[교수] 별도 창 비디오 재생 실패:', e);
           });
         }
       } catch(e) {
-        console.error('[Host] 별도 창 스트림 설정 실패:', e);
+        console.error('[교수] 별도 창 스트림 설정 실패:', e);
       }
     };
     
@@ -1528,7 +1528,7 @@ function openHostCameraWindow(cameraStream, isScreenShareMode = false, screenInf
           hostCameraWindow.addEventListener('touchcancel', stopDrag);
         }
       } catch(e) {
-        console.warn('[Host] 드래그 기능 설정 실패:', e);
+        console.warn('[교수] 드래그 기능 설정 실패:', e);
       }
       
       // 전체화면 버튼 기능
@@ -1553,7 +1553,7 @@ function openHostCameraWindow(cameraStream, isScreenShareMode = false, screenInf
           });
         }
       } catch(e) {
-        console.warn('[Host] 전체화면 버튼 설정 실패:', e);
+        console.warn('[교수] 전체화면 버튼 설정 실패:', e);
       }
       
       // 닫기 버튼 기능
@@ -1567,7 +1567,7 @@ function openHostCameraWindow(cameraStream, isScreenShareMode = false, screenInf
           });
         }
       } catch(e) {
-        console.warn('[Host] 닫기 버튼 설정 실패:', e);
+        console.warn('[교수] 닫기 버튼 설정 실패:', e);
       }
       
       // 창이 닫힐 때 부모 창에 알림
@@ -1580,7 +1580,7 @@ function openHostCameraWindow(cameraStream, isScreenShareMode = false, screenInf
           }
         });
       } catch(e) {
-        console.warn('[Host] beforeunload 이벤트 설정 실패:', e);
+        console.warn('[교수] beforeunload 이벤트 설정 실패:', e);
       }
     };
     
@@ -1599,14 +1599,14 @@ function openHostCameraWindow(cameraStream, isScreenShareMode = false, screenInf
       if (hostCameraWindow && hostCameraWindow.closed) {
         clearInterval(checkClosed);
         hostCameraWindow = null;
-        log('[Host] 카메라 별도 창이 닫혔습니다');
+        log('[교수] 카메라 별도 창이 닫혔습니다');
       }
     }, 500);
     
-    log('[Host] 호스트 카메라 별도 창 열림');
+    log('[교수] 교수 카메라 별도 창 열림');
   } catch(e) {
-    console.error('[Host] 별도 창 열기 실패:', e);
-    log('[Host] 별도 창 열기 실패: ' + e.message);
+    console.error('[교수] 별도 창 열기 실패:', e);
+    log('[교수] 별도 창 열기 실패: ' + e.message);
     toast('별도 창을 열 수 없습니다');
   }
 }
@@ -1615,7 +1615,7 @@ function closeHostCameraWindow() {
   if (hostCameraWindow && !hostCameraWindow.closed) {
     hostCameraWindow.close();
     hostCameraWindow = null;
-    log('[Host] 호스트 카메라 별도 창 닫음');
+    log('[교수] 교수 카메라 별도 창 닫음');
   }
 }
 
@@ -1623,7 +1623,7 @@ function closeHostCameraWindow() {
 window.addEventListener('message', (e) => {
   if (e.data && e.data.type === 'cameraWindowClosed') {
     hostCameraWindow = null;
-    log('[Host] 카메라 별도 창이 닫혔습니다 (메시지 수신)');
+    log('[교수] 카메라 별도 창이 닫혔습니다 (메시지 수신)');
   }
 });
 
@@ -1649,17 +1649,17 @@ async function replaceVideoTrack(){
   localStream = new MediaStream([ newTrack, ...localStream.getAudioTracks() ]);
 
   if (role === 'host' && comm === 'meeting') {
-    // 호스트 미팅 모드: 모든 게스트 연결에 트랙 교체
+    // 교수 미팅 모드: 모든 학생 연결에 트랙 교체
     peerConnections.forEach((_pc, vid) => {
       const sender = _pc.getSenders().find(s => s.track && s.track.kind === 'video');
       if (sender && newTrack) {
         sender.replaceTrack(newTrack).catch(e => {
-          console.warn(`[Host] replaceTrack failed for ${vid}:`, e);
+          console.warn(`[교수] replaceTrack failed for ${vid}:`, e);
         });
       }
     });
   } else if (pc) {
-    // 게스트 또는 호스트 방송 모드
+    // 학생 또는 교수 방송 모드
     const sender = pc.getSenders().find(s=>s.track && s.track.kind==='video');
     if (sender && newTrack){
       try{
@@ -1754,13 +1754,13 @@ async function startScreenShare(){
             if (!hasCameraTrack && cameraTrackForPip) {
               const cameraStream = new MediaStream([cameraTrackForPip]);
               _pc.addTrack(cameraTrackForPip, cameraStream);
-              log(`[Host] 게스트 ${vid}에게 카메라 트랙도 추가`);
+              log(`[교수] 학생 ${vid}에게 카메라 트랙도 추가`);
             }
             
-            log(`[Host] 게스트 ${vid}에게 화면공유 트랙 추가 (카메라 유지)`);
+            log(`[교수] 학생 ${vid}에게 화면공유 트랙 추가 (카메라 유지)`);
           } catch(e) {
-            console.warn(`[Host] 화면공유 트랙 추가 실패 (${vid}):`, e);
-            log(`[Host] 화면공유 트랙 추가 실패 (${vid}): ` + e.message);
+            console.warn(`[교수] 화면공유 트랙 추가 실패 (${vid}):`, e);
+            log(`[교수] 화면공유 트랙 추가 실패 (${vid}): ` + e.message);
           }
         });
       } else {
@@ -1772,7 +1772,7 @@ async function startScreenShare(){
           const cameraTrack = cameraStream.getVideoTracks()[0];
           if (cameraTrack) {
             hostCameraStream = new MediaStream([cameraTrack]);
-            log('[Host] 화면공유 모드: 별도 카메라 스트림 획득 완료');
+            log('[교수] 화면공유 모드: 별도 카메라 스트림 획득 완료');
             
             // 화면공유 트랙에서 공유되는 화면 정보 가져오기
             const screenSettings = screenTrack.getSettings();
@@ -1783,8 +1783,8 @@ async function startScreenShare(){
             await startCameraPiP(hostCameraStream);
           }
         } catch(e) {
-          console.warn('[Host] 화면공유 중 카메라 스트림 획득 실패:', e);
-          log('[Host] 화면공유 중 카메라 스트림 획득 실패: ' + e.message);
+          console.warn('[교수] 화면공유 중 카메라 스트림 획득 실패:', e);
+          log('[교수] 화면공유 중 카메라 스트림 획득 실패: ' + e.message);
         }
         
         // 기존 트랙 제거
@@ -1799,7 +1799,7 @@ async function startScreenShare(){
           const sender = _pc.getSenders().find(s => s.track && s.track.kind === 'video');
           if (sender && screenTrack) {
             sender.replaceTrack(screenTrack).catch(e => {
-              console.warn(`[Host] 화면공유 트랙 교체 실패 (${vid}):`, e);
+              console.warn(`[교수] 화면공유 트랙 교체 실패 (${vid}):`, e);
             });
           }
         });
@@ -1878,7 +1878,7 @@ async function stopScreenShare(){
       screenShareStream = null;
     }
     
-    // 호스트 카메라 별도 창 닫기
+    // 교수 카메라 별도 창 닫기
     closeHostCameraWindow();
     
     // PiP 정리
@@ -1901,7 +1901,7 @@ async function stopScreenShare(){
             const sender = _pc.getSenders().find(s => s.track && s.track.kind === 'video');
             if (sender && cameraTrack) {
               sender.replaceTrack(cameraTrack).catch(e => {
-                console.warn(`[Host] 카메라 트랙 교체 실패 (${vid}):`, e);
+                console.warn(`[교수] 카메라 트랙 교체 실패 (${vid}):`, e);
               });
             }
           });
@@ -1949,11 +1949,11 @@ async function stopScreenShare(){
 function addPending(vid, data){
   // 이미 pending 목록에 있거나 이미 연결된 게스트는 무시
   if (document.getElementById(`pending-${vid}`)) {
-    log(`[Host] ${vid}는 이미 승인 대기 중입니다`);
+    log(`[교수] ${vid}는 이미 승인 대기 중입니다`);
     return;
   }
   if (peerConnections.has(vid)) {
-    log(`[Host] ${vid}는 이미 연결되어 있습니다`);
+    log(`[교수] ${vid}는 이미 연결되어 있습니다`);
     return;
   }
   
@@ -2018,9 +2018,9 @@ async function startHost(){
     // 방이 시작될 때 기존 데이터 모두 초기화 (과거에 사용된 방 코드라도 새로 시작)
     try {
       await db.ref(`rooms/${roomId}`).remove();
-      log('[Host] 기존 방 데이터 초기화 완료');
+      log('[교수] 기존 방 데이터 초기화 완료');
     } catch(e) {
-      console.warn('[Host] 방 데이터 초기화 실패:', e);
+      console.warn('[교수] 방 데이터 초기화 실패:', e);
       // 초기화 실패해도 계속 진행
     }
     
@@ -2040,7 +2040,7 @@ async function startHost(){
       throw new Error('미디어 스트림을 획득할 수 없습니다');
     }
     
-    // 호스트 미리보기 표시 (음소거하지 않음)
+    // 교수 미리보기 표시 (음소거하지 않음)
     if (localStream && localPreview) {
       localPreview.srcObject = localStream;
       try {
@@ -2057,14 +2057,14 @@ async function startHost(){
       const hostAudioTrack = localStream.getAudioTracks()[0];
       if (hostAudioTrack) {
         hostAudioTrack.enabled = true; // 항상 활성화
-        log('[Host] 교수 마이크 항상 활성화 상태 유지');
+        log('[교수] 교수 마이크 항상 활성화 상태 유지');
       }
     }
     
     const vTrack = localStream?.getVideoTracks?.()[0];
     if (vTrack) {
       vTrack.onended = () => {
-        log('[Host] video track ended (창 닫힘/최소화 등). 다시 시작하세요.');
+        log('[교수] video track ended (창 닫힘/최소화 등). 다시 시작하세요.');
         toast('공유 화면이 종료되었습니다. [시작]으로 다시 공유하세요.');
         // 필요하면 자동 재시작:
         // startBtn.click();
@@ -2076,8 +2076,8 @@ async function startHost(){
       const cameraTrack = localStream.getVideoTracks()[0];
       if (cameraTrack) {
         hostCameraStream = new MediaStream([cameraTrack]);
-        log('[Host] 카메라 스트림: hostCameraStream 설정됨');
-        console.log('[Host] hostCameraStream 설정 완료', hostCameraStream);
+        log('[교수] 카메라 스트림: hostCameraStream 설정됨');
+        console.log('[교수] hostCameraStream 설정 완료', hostCameraStream);
       }
     }
     
@@ -3077,12 +3077,12 @@ async function startGuest(){
       
       if (isiOS) showIOSUnmuteOverlayIfNeeded(); else unmuteBtn.style.display='inline-block';
     }else{
-      // 미팅 모드: 호스트의 스트림을 표시
-      // 게스트는 호스트와만 연결되므로 하나의 비디오만 표시
+      // 미팅 모드: 교수의 스트림을 표시
+      // 학생은 교수와만 연결되므로 하나의 비디오만 표시
       const hostVideoId = 'host';
       let videoEl = remoteVideos.get(hostVideoId);
       if (!videoEl) {
-        videoEl = createRemoteVideoElement(hostVideoId, '호스트');
+        videoEl = createRemoteVideoElement(hostVideoId, '교수');
         remoteVideos.set(hostVideoId, videoEl);
       }
       if (videoEl.srcObject !== stream) {
@@ -3093,6 +3093,22 @@ async function startGuest(){
           await videoEl.play(); 
         }catch(e){} })();
         audioMirror.srcObject = stream;
+        
+        // 학생이 입실 허용되면 교수 화면을 전체화면으로 표시
+        if (fullscreenVideo && fsVideo) {
+          fsVideo.srcObject = stream;
+          fullscreenVideo.classList.add('show');
+          (async () => {
+            try {
+              fsVideo.setAttribute('playsinline','');
+              fsVideo.setAttribute('webkit-playsinline','');
+              await fsVideo.play();
+              log('[Guest] 교수 화면 전체화면으로 표시');
+            } catch(e) {
+              console.warn('전체화면 재생 실패:', e);
+            }
+          })();
+        }
       }
       if (isiOS) showIOSUnmuteOverlayIfNeeded(); else unmuteBtn.style.display='inline-block';
     }
