@@ -90,7 +90,7 @@
 <header>
   <div class="header-top">
     <div class="header-left">
-      <h1 style="margin:0;font-size:18px">김천대 본관 6층 사무엘실</h1>
+      <h1 style="margin:0;font-size:18px">김천대 본관 6층 사무엘실 2.0</h1>
       <div id="status" class="muted" style="font-size:12px">대기 중…</div>
     </div>
     <div class="header-controls">
@@ -356,6 +356,8 @@ let guestQuestionPiPVideo = null;  // 게스트 질문 PiP용 비디오 엘리�
 let currentQuestionGuestId = null;  // 현재 질문 중인 게스트 ID
 let hostPiPWasActiveBeforeQuestion = false;  // 질문 시작 전 호스트 PiP 활성화 여부
 let isQuestionRequestActive = false;  // 질문 요청 활성화 여부 (토글용)
+let allCameraStreams = new Map();     // 모든 카메라 스트림 저장 (deviceId -> stream)
+let allCameraVideos = new Map();      // 모든 카메라 비디오 엘리먼트 저장 (deviceId -> video element)
 let firebaseListeners = {           // Firebase 리스너 정리를 위한 참조
   offers: null,
   answers: null,
@@ -955,21 +957,212 @@ document.addEventListener('keydown', (e) => {
 
 
 /* ---------------- Media Builders ---------------- */
-async function getCameraStream(){
+async function getCameraStream(deviceId = null){
   try {
+    const videoConstraints = {
+      width:  { ideal: 1280, max: 1920 },
+      height: { ideal: 720,  max: 1080 },
+      frameRate: { ideal: 30, max: 60 }
+    };
+    
+    // 특정 deviceId가 제공되면 해당 카메라 사용
+    if (deviceId) {
+      videoConstraints.deviceId = { exact: deviceId };
+    } else {
+      // deviceId가 없으면 기본 facingMode 사용
+      videoConstraints.facingMode = facingMode;
+    }
+    
     return await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode,
-        width:  { ideal: 1280, max: 1920 },
-        height: { ideal: 720,  max: 1080 },
-        frameRate: { ideal: 30, max: 60 }
-      },
+      video: videoConstraints,
       audio: { echoCancellation:true, noiseSuppression:true, autoGainControl:true }
     });
   } catch(e) {
     log('[Camera] 카메라/마이크 획득 실패: ' + e.message);
     toast('카메라/마이크 권한을 확인하세요');
     throw e;
+  }
+}
+
+// 모든 카메라 디바이스 감지
+async function enumerateAllCameras(){
+  try {
+    // 먼저 카메라 권한 요청 (enumerateDevices는 권한이 있어야 deviceId를 반환)
+    await navigator.mediaDevices.getUserMedia({ video: true });
+    
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const videoDevices = devices.filter(device => device.kind === 'videoinput');
+    
+    log(`[Camera] 감지된 카메라 수: ${videoDevices.length}`);
+    videoDevices.forEach((device, index) => {
+      log(`[Camera] ${index + 1}. ${device.label || `카메라 ${index + 1}`} (ID: ${device.deviceId.substring(0, 20)}...)`);
+    });
+    
+    return videoDevices;
+  } catch(e) {
+    log('[Camera] 카메라 목록 조회 실패: ' + e.message);
+    console.error('카메라 목록 조회 오류:', e);
+    return [];
+  }
+}
+
+// 특정 카메라에서 비디오 스트림 가져오기
+async function getCameraStreamByDeviceId(deviceId, deviceLabel){
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        deviceId: { exact: deviceId },
+        width:  { ideal: 1280, max: 1920 },
+        height: { ideal: 720,  max: 1080 },
+        frameRate: { ideal: 30, max: 60 }
+      },
+      audio: false  // 각 카메라마다 오디오는 제외 (중복 방지)
+    });
+    
+    log(`[Camera] ${deviceLabel || '카메라'} 스트림 획득 성공`);
+    return stream;
+  } catch(e) {
+    log(`[Camera] ${deviceLabel || '카메라'} 스트림 획득 실패: ${e.message}`);
+    console.error(`카메라 스트림 획득 오류 (${deviceLabel}):`, e);
+    throw e;
+  }
+}
+
+// 모든 카메라 영상 표시
+async function displayAllCameras(){
+  try {
+    // 기존 카메라 스트림 정리
+    cleanupAllCameras();
+    
+    // 모든 카메라 감지
+    const cameras = await enumerateAllCameras();
+    
+    if (cameras.length === 0) {
+      log('[Camera] 감지된 카메라가 없습니다');
+      toast('카메라를 찾을 수 없습니다');
+      return;
+    }
+    
+    // 카메라 영상을 표시할 컨테이너 생성 또는 찾기
+    let camerasContainer = document.getElementById('allCamerasContainer');
+    if (!camerasContainer) {
+      camerasContainer = document.createElement('div');
+      camerasContainer.id = 'allCamerasContainer';
+      camerasContainer.className = 'all-cameras-container';
+      camerasContainer.style.cssText = 'margin-top: 16px; padding: 16px; background: rgba(13,20,51,0.6); border-radius: 12px; border: 1px solid #2a3a77;';
+      
+      const title = document.createElement('h3');
+      title.textContent = '연결된 모든 카메라';
+      title.style.cssText = 'margin: 0 0 12px 0; font-size: 16px; color: #eaf0ff;';
+      camerasContainer.appendChild(title);
+      
+      const camerasGrid = document.createElement('div');
+      camerasGrid.id = 'allCamerasGrid';
+      camerasGrid.className = 'all-cameras-grid';
+      camerasGrid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px;';
+      camerasContainer.appendChild(camerasGrid);
+      
+      // meetingVideos 섹션에 추가
+      if (meetingVideos) {
+        meetingVideos.appendChild(camerasContainer);
+      }
+    }
+    
+    const camerasGrid = document.getElementById('allCamerasGrid');
+    if (!camerasGrid) {
+      throw new Error('카메라 그리드 컨테이너를 찾을 수 없습니다');
+    }
+    
+    // 각 카메라에 대해 비디오 스트림 가져오기 및 표시
+    for (const camera of cameras) {
+      try {
+        const stream = await getCameraStreamByDeviceId(camera.deviceId, camera.label);
+        allCameraStreams.set(camera.deviceId, stream);
+        
+        // 비디오 엘리먼트 생성
+        const videoWrapper = document.createElement('div');
+        videoWrapper.className = 'camera-video-wrapper';
+        videoWrapper.style.cssText = 'position: relative; background: #000; border-radius: 8px; overflow: hidden; min-height: 200px;';
+        
+        const video = document.createElement('video');
+        video.autoplay = true;
+        video.playsInline = true;
+        video.style.cssText = 'width: 100%; height: auto; display: block;';
+        video.srcObject = stream;
+        
+        const label = document.createElement('small');
+        label.textContent = camera.label || `카메라 ${cameras.indexOf(camera) + 1}`;
+        label.style.cssText = 'position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,0.7); color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 11px; z-index: 10;';
+        
+        videoWrapper.appendChild(video);
+        videoWrapper.appendChild(label);
+        camerasGrid.appendChild(videoWrapper);
+        
+        allCameraVideos.set(camera.deviceId, video);
+        
+        // 비디오 재생 시도
+        try {
+          await video.play();
+        } catch(playError) {
+          console.warn(`비디오 재생 실패 (${camera.label}):`, playError);
+        }
+        
+        // 스트림 종료 감지
+        stream.getVideoTracks().forEach(track => {
+          track.onended = () => {
+            log(`[Camera] ${camera.label || '카메라'} 스트림 종료됨`);
+            cleanupCamera(camera.deviceId);
+          };
+        });
+        
+      } catch(cameraError) {
+        console.error(`카메라 ${camera.label} 처리 실패:`, cameraError);
+        log(`[Camera] ${camera.label || '카메라'} 처리 실패: ${cameraError.message}`);
+      }
+    }
+    
+    log(`[Camera] 총 ${allCameraStreams.size}개의 카메라 영상 표시 완료`);
+    toast(`${allCameraStreams.size}개의 카메라가 감지되었습니다`);
+    
+  } catch(e) {
+    log('[Camera] 모든 카메라 표시 실패: ' + e.message);
+    console.error('모든 카메라 표시 오류:', e);
+    toast('카메라 표시 중 오류가 발생했습니다');
+  }
+}
+
+// 특정 카메라 정리
+function cleanupCamera(deviceId){
+  const stream = allCameraStreams.get(deviceId);
+  if (stream) {
+    stream.getTracks().forEach(track => track.stop());
+    allCameraStreams.delete(deviceId);
+  }
+  
+  const video = allCameraVideos.get(deviceId);
+  if (video) {
+    video.srcObject = null;
+    video.parentElement?.remove();
+    allCameraVideos.delete(deviceId);
+  }
+}
+
+// 모든 카메라 정리
+function cleanupAllCameras(){
+  allCameraStreams.forEach((stream, deviceId) => {
+    stream.getTracks().forEach(track => track.stop());
+  });
+  allCameraStreams.clear();
+  
+  allCameraVideos.forEach((video) => {
+    video.srcObject = null;
+    video.parentElement?.remove();
+  });
+  allCameraVideos.clear();
+  
+  const camerasContainer = document.getElementById('allCamerasContainer');
+  if (camerasContainer) {
+    camerasContainer.remove();
   }
 }
 
@@ -1988,6 +2181,14 @@ async function startHost(){
     });
 
     startBtn.disabled = true; stopBtn.disabled = false; isRunning=true;
+    
+    // 교수 입실 시 모든 카메라 영상 표시
+    try {
+      await displayAllCameras();
+    } catch(cameraError) {
+      console.error('모든 카메라 표시 중 오류:', cameraError);
+      log('[Camera] 모든 카메라 표시 중 오류 발생 (계속 진행)');
+    }
     
     // 시작 후 UI 업데이트 (버튼 표시 등)
     refreshUIByMode();
@@ -3153,6 +3354,9 @@ async function cleanup(){
   
   // 호스트 카메라 별도 창 닫기
   closeHostCameraWindow();
+  
+  // 모든 카메라 정리
+  cleanupAllCameras();
   
   // PiP 정리
   if (hostCameraStream) {
