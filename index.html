@@ -90,7 +90,7 @@
 <header>
   <div class="header-top">
     <div class="header-left">
-      <h1 style="margin:0;font-size:18px">김천대 본관 6층 사무엘실 2.0</h1>
+      <h1 style="margin:0;font-size:18px">김천대 본관 6층 사무엘실</h1>
       <div id="status" class="muted" style="font-size:12px">대기 중…</div>
     </div>
     <div class="header-controls">
@@ -1124,6 +1124,25 @@ async function displayAllCameras(){
     log(`[Camera] 총 ${allCameraStreams.size}개의 카메라 영상 표시 완료`);
     toast(`${allCameraStreams.size}개의 카메라가 감지되었습니다`);
     
+    // 기존 게스트 연결에도 모든 카메라 추가
+    if (role === 'host' && peerConnections.size > 0) {
+      peerConnections.forEach((_pc, vid) => {
+        allCameraStreams.forEach((cameraStream, deviceId) => {
+          const videoTrack = cameraStream.getVideoTracks()[0];
+          if (videoTrack && videoTrack.readyState === 'live') {
+            try {
+              const cameraLabel = videoTrack.label || `카메라 ${Array.from(allCameraStreams.keys()).indexOf(deviceId) + 1}`;
+              const cameraMediaStream = new MediaStream([videoTrack]);
+              _pc.addTrack(videoTrack, cameraMediaStream);
+              log(`[Host] 기존 게스트 ${vid.substring(0,6)}에게 카메라 추가: ${cameraLabel}`);
+            } catch(e) {
+              console.warn(`[Host] 게스트 ${vid}에게 카메라 추가 실패:`, e);
+            }
+          }
+        });
+      });
+    }
+    
   } catch(e) {
     log('[Camera] 모든 카메라 표시 실패: ' + e.message);
     console.error('모든 카메라 표시 오류:', e);
@@ -1164,6 +1183,99 @@ function cleanupAllCameras(){
   if (camerasContainer) {
     camerasContainer.remove();
   }
+}
+
+// 게스트: 호스트의 모든 카메라를 그리드로 표시
+function displayGuestAllCameras(){
+  if (!broadcastAllCameras || broadcastAllCameras.size === 0) {
+    // 카메라가 없으면 컨테이너 제거
+    const guestCamerasContainer = document.getElementById('guestAllCamerasContainer');
+    if (guestCamerasContainer) {
+      guestCamerasContainer.remove();
+    }
+    return;
+  }
+  
+  // 카메라 영상을 표시할 컨테이너 생성 또는 찾기
+  let camerasContainer = document.getElementById('guestAllCamerasContainer');
+  if (!camerasContainer) {
+    camerasContainer = document.createElement('div');
+    camerasContainer.id = 'guestAllCamerasContainer';
+    camerasContainer.className = 'guest-all-cameras-container';
+    camerasContainer.style.cssText = 'margin-top: 16px; padding: 16px; background: rgba(13,20,51,0.6); border-radius: 12px; border: 1px solid #2a3a77;';
+    
+    const title = document.createElement('h3');
+    title.textContent = '교수의 모든 카메라';
+    title.style.cssText = 'margin: 0 0 12px 0; font-size: 16px; color: #eaf0ff;';
+    camerasContainer.appendChild(title);
+    
+    const camerasGrid = document.createElement('div');
+    camerasGrid.id = 'guestAllCamerasGrid';
+    camerasGrid.className = 'guest-all-cameras-grid';
+    camerasGrid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px;';
+    camerasContainer.appendChild(camerasGrid);
+    
+    // meetingVideos 섹션에 추가 (방송 모드에서도 표시)
+    if (meetingVideos) {
+      meetingVideos.appendChild(camerasContainer);
+      meetingVideos.classList.remove('hidden');
+    }
+  }
+  
+  const camerasGrid = document.getElementById('guestAllCamerasGrid');
+  if (!camerasGrid) {
+    return;
+  }
+  
+  // 기존 비디오 엘리먼트 제거 (재생성)
+  camerasGrid.innerHTML = '';
+  
+  // 각 카메라 트랙에 대해 비디오 엘리먼트 생성
+  broadcastAllCameras.forEach((cameraData, trackId) => {
+    const { track, label } = cameraData;
+    
+    if (track.readyState !== 'live') {
+      return; // 비활성화된 트랙은 건너뛰기
+    }
+    
+    // 비디오 엘리먼트 생성
+    const videoWrapper = document.createElement('div');
+    videoWrapper.className = 'guest-camera-video-wrapper';
+    videoWrapper.style.cssText = 'position: relative; background: #000; border-radius: 8px; overflow: hidden; min-height: 200px;';
+    videoWrapper.dataset.trackId = trackId;
+    
+    const video = document.createElement('video');
+    video.autoplay = true;
+    video.playsInline = true;
+    video.muted = true; // 자동재생을 위해 음소거
+    video.style.cssText = 'width: 100%; height: auto; display: block;';
+    
+    const cameraStream = new MediaStream([track]);
+    video.srcObject = cameraStream;
+    
+    const labelEl = document.createElement('small');
+    labelEl.textContent = label;
+    labelEl.style.cssText = 'position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,0.7); color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 11px; z-index: 10;';
+    
+    videoWrapper.appendChild(video);
+    videoWrapper.appendChild(labelEl);
+    camerasGrid.appendChild(videoWrapper);
+    
+    // 비디오 재생 시도
+    (async () => {
+      try {
+        video.setAttribute('playsinline', '');
+        video.setAttribute('webkit-playsinline', '');
+        await video.play();
+        log(`[Guest] 카메라 영상 재생 성공: ${label}`);
+      } catch(playError) {
+        console.warn(`비디오 재생 실패 (${label}):`, playError);
+        log(`[Guest] 카메라 영상 재생 실패: ${label} - ${playError.message}`);
+      }
+    })();
+  });
+  
+  log(`[Guest] 총 ${broadcastAllCameras.size}개의 교수 카메라 영상 표시 완료`);
 }
 
 async function getScreenStream(){
@@ -2636,6 +2748,21 @@ async function acceptGuest(vid, data, li){
         localStream.getTracks().forEach(t=>_pc.addTrack(t, localStream));
       }
     }
+    
+    // 모든 카메라 스트림을 게스트에게 전송
+    if (allCameraStreams.size > 0) {
+      let cameraIndex = 0;
+      allCameraStreams.forEach((cameraStream, deviceId) => {
+        const videoTrack = cameraStream.getVideoTracks()[0];
+        if (videoTrack && videoTrack.readyState === 'live') {
+          const cameraLabel = videoTrack.label || `카메라 ${cameraIndex + 1}`;
+          const cameraMediaStream = new MediaStream([videoTrack]);
+          _pc.addTrack(videoTrack, cameraMediaStream);
+          log(`[Host] 게스트 ${vid}에게 카메라 전송: ${cameraLabel}`);
+          cameraIndex++;
+        }
+      });
+    }
     preferH264(_pc);
 
     // remote ICE (guest)
@@ -2757,9 +2884,12 @@ async function startGuest(){
 
     // 트랜시버/로컬 트랙 구성
     if (comm==='broadcast'){
-      // 수신 전용 (화면공유 + 카메라 두 개의 비디오 트랙을 받기 위해 두 개의 트랜시버 생성)
-      pc.addTransceiver('video', { direction:'recvonly' });
-      pc.addTransceiver('video', { direction:'recvonly' });
+      // 수신 전용 (화면공유 + 여러 카메라를 받기 위해 여러 트랜시버 생성)
+      // 화면공유 1개 + 최대 10개의 카메라를 지원
+      pc.addTransceiver('video', { direction:'recvonly' }); // 화면공유용
+      for (let i = 0; i < 10; i++) {
+        pc.addTransceiver('video', { direction:'recvonly' }); // 카메라용
+      }
       pc.addTransceiver('audio', { direction:'recvonly' });
     }else{
       // 미팅: 로컬 카메라 캡처 후 전송
@@ -2786,6 +2916,16 @@ async function startGuest(){
   broadcastVideoTracks = [];
   broadcastScreenTrack = null;
   broadcastCameraTrack = null;
+  if (broadcastAllCameras) {
+    broadcastAllCameras.clear();
+  }
+  
+  // 게스트 카메라 컨테이너 제거
+  const guestCamerasContainer = document.getElementById('guestAllCamerasContainer');
+  if (guestCamerasContainer) {
+    guestCamerasContainer.remove();
+  }
+  broadcastAllCameras = new Map(); // 모든 카메라 트랙 저장 (trackId -> {track, label})
   
   pc.ontrack = (ev)=>{
     const stream = ev.streams[0];
@@ -2891,82 +3031,106 @@ async function startGuest(){
           } else {
             log('[Guest] 화면공유 수신 - 카메라 트랙이 아직 없음');
           }
-        } else if (!isScreenTrack && !broadcastCameraTrack) {
-          // 카메라 트랙 (PiP) - 화면공유 트랙이 있으면 PiP로, 없으면 임시 저장
-          broadcastCameraTrack = track;
-          log(`[Guest] 카메라 트랙 수신: label="${track.label}", screenTrack=${!!broadcastScreenTrack}`);
+        } else if (!isScreenTrack) {
+          // 카메라 트랙 - 모든 카메라를 저장하고 표시
+          const cameraLabel = track.label || `카메라 ${broadcastAllCameras.size + 1}`;
+          broadcastAllCameras.set(track.id, { track, label: cameraLabel });
           
-          // 화면공유 트랙이 이미 있으면 PiP 표시, 없으면 나중에 표시
-          if (broadcastScreenTrack) {
-            log('[Guest] 화면공유 트랙이 이미 있음, 카메라 PiP 표시 시작');
-            const cameraStream = new MediaStream([track]);
+          // 첫 번째 카메라는 기존 PiP 방식 유지 (하위 호환성)
+          if (!broadcastCameraTrack) {
+            broadcastCameraTrack = track;
+            log(`[Guest] 첫 번째 카메라 트랙 수신: label="${cameraLabel}", screenTrack=${!!broadcastScreenTrack}`);
             
-            // 일반 PiP 설정
-            pipVideo.srcObject = cameraStream;
-            pipOverlay.classList.add('show');
-            
-            // 전체화면 PiP도 설정
-            if (fullscreenPipVideo) {
-              // 같은 트랙을 사용하는 새 스트림 생성
-              const fullscreenCameraStream = new MediaStream([track]);
-              fullscreenPipVideo.srcObject = fullscreenCameraStream;
-              // 전체화면이 열려있으면 전체화면 PiP도 표시
-              if (fullscreenVideo.classList.contains('show')) {
-                fullscreenPipOverlay.classList.add('show');
+            // 화면공유 트랙이 이미 있으면 PiP 표시, 없으면 나중에 표시
+            if (broadcastScreenTrack) {
+              log('[Guest] 화면공유 트랙이 이미 있음, 카메라 PiP 표시 시작');
+              const cameraStream = new MediaStream([track]);
+              
+              // 일반 PiP 설정
+              pipVideo.srcObject = cameraStream;
+              pipOverlay.classList.add('show');
+              
+              // 전체화면 PiP도 설정
+              if (fullscreenPipVideo) {
+                const fullscreenCameraStream = new MediaStream([track]);
+                fullscreenPipVideo.srcObject = fullscreenCameraStream;
+                if (fullscreenVideo.classList.contains('show')) {
+                  fullscreenPipOverlay.classList.add('show');
+                }
               }
+              
+              // PiP 비디오 재생 시도
+              const playPipVideo = async () => {
+                try {
+                  pipVideo.setAttribute('playsinline', '');
+                  pipVideo.setAttribute('webkit-playsinline', '');
+                  pipVideo.muted = true;
+                  await pipVideo.play();
+                  
+                  if (fullscreenPipVideo && fullscreenPipVideo.srcObject) {
+                    fullscreenPipVideo.setAttribute('playsinline', '');
+                    fullscreenPipVideo.setAttribute('webkit-playsinline', '');
+                    fullscreenPipVideo.muted = true;
+                    await fullscreenPipVideo.play();
+                  }
+                  
+                  log('[Guest] 호스트 카메라 PiP 표시 및 재생 성공');
+                } catch(e) {
+                  console.warn('PiP video play failed:', e);
+                  log('[Guest] PiP 비디오 재생 실패: ' + e.message + ' (재시도 중...)');
+                  setTimeout(() => {
+                    if (pipVideo.srcObject && broadcastCameraTrack) {
+                      pipVideo.play().catch(e2 => {
+                        console.warn('PiP video play retry failed:', e2);
+                      });
+                    }
+                    if (fullscreenPipVideo && fullscreenPipVideo.srcObject) {
+                      fullscreenPipVideo.play().catch(e2 => {
+                        console.warn('Fullscreen PiP video play retry failed:', e2);
+                      });
+                    }
+                  }, 500);
+                }
+              };
+              playPipVideo();
+            } else {
+              log('[Guest] 카메라 트랙 수신 (화면공유 대기 중) - PiP는 화면공유 수신 후 표시됨');
             }
             
-            // PiP 비디오 재생 시도 (재시도 포함)
-            const playPipVideo = async () => {
-              try {
-                pipVideo.setAttribute('playsinline', '');
-                pipVideo.setAttribute('webkit-playsinline', '');
-                pipVideo.muted = true; // 자동재생을 위해 음소거
-                await pipVideo.play();
-                
-                // 전체화면 PiP도 재생
-                if (fullscreenPipVideo && fullscreenPipVideo.srcObject) {
-                  fullscreenPipVideo.setAttribute('playsinline', '');
-                  fullscreenPipVideo.setAttribute('webkit-playsinline', '');
-                  fullscreenPipVideo.muted = true;
-                  await fullscreenPipVideo.play();
-                }
-                
-                log('[Guest] 호스트 카메라 PiP 표시 및 재생 성공');
-              } catch(e) {
-                console.warn('PiP video play failed:', e);
-                log('[Guest] PiP 비디오 재생 실패: ' + e.message + ' (재시도 중...)');
-                // 재시도
-                setTimeout(() => {
-                  if (pipVideo.srcObject && broadcastCameraTrack) {
-                    pipVideo.play().catch(e2 => {
-                      console.warn('PiP video play retry failed:', e2);
-                    });
-                  }
-                  if (fullscreenPipVideo && fullscreenPipVideo.srcObject) {
-                    fullscreenPipVideo.play().catch(e2 => {
-                      console.warn('Fullscreen PiP video play retry failed:', e2);
-                    });
-                  }
-                }, 500);
+            // 트랙 종료 시 PiP 닫기
+            track.onended = () => {
+              pipOverlay.classList.remove('show');
+              pipVideo.srcObject = null;
+              if (fullscreenPipOverlay) {
+                fullscreenPipOverlay.classList.remove('show');
+                if (fullscreenPipVideo) fullscreenPipVideo.srcObject = null;
               }
+              broadcastCameraTrack = null;
+              broadcastAllCameras.delete(track.id);
+              log('[Guest] 호스트 카메라 종료, PiP 닫힘');
             };
-            playPipVideo();
           } else {
-            // 화면공유 트랙이 아직 없으면 나중에 PiP 표시하도록 대기
-            log('[Guest] 카메라 트랙 수신 (화면공유 대기 중) - PiP는 화면공유 수신 후 표시됨');
+            // 추가 카메라 트랙 수신
+            log(`[Guest] 추가 카메라 트랙 수신: label="${cameraLabel}" (총 ${broadcastAllCameras.size}개)`);
           }
           
-          // 트랙 종료 시 PiP 닫기
+          // 모든 카메라를 그리드로 표시
+          displayGuestAllCameras();
+          
+          // 트랙 종료 시 처리
           track.onended = () => {
-            pipOverlay.classList.remove('show');
-            pipVideo.srcObject = null;
-            if (fullscreenPipOverlay) {
-              fullscreenPipOverlay.classList.remove('show');
-              if (fullscreenPipVideo) fullscreenPipVideo.srcObject = null;
+            broadcastAllCameras.delete(track.id);
+            if (broadcastCameraTrack === track) {
+              broadcastCameraTrack = null;
+              pipOverlay.classList.remove('show');
+              pipVideo.srcObject = null;
+              if (fullscreenPipOverlay) {
+                fullscreenPipOverlay.classList.remove('show');
+                if (fullscreenPipVideo) fullscreenPipVideo.srcObject = null;
+              }
             }
-            broadcastCameraTrack = null;
-            log('[Guest] 호스트 카메라 종료, PiP 닫힘');
+            displayGuestAllCameras(); // 그리드 업데이트
+            log(`[Guest] 카메라 트랙 종료: ${cameraLabel}`);
           };
         } else if (!broadcastScreenTrack && !broadcastCameraTrack) {
           // label로 구분이 안 되는 경우 순서 기반 처리 (첫 번째는 화면공유로 가정)
@@ -3371,6 +3535,15 @@ async function cleanup(){
   broadcastVideoTracks = [];
   broadcastScreenTrack = null;
   broadcastCameraTrack = null;
+  if (broadcastAllCameras) {
+    broadcastAllCameras.clear();
+  }
+  
+  // 게스트 카메라 컨테이너 제거
+  const guestCamerasContainer = document.getElementById('guestAllCamerasContainer');
+  if (guestCamerasContainer) {
+    guestCamerasContainer.remove();
+  }
   
   // 전체화면 정리
   fullscreenVideo.classList.remove('show');
