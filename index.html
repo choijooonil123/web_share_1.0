@@ -358,6 +358,10 @@ let hostPiPWasActiveBeforeQuestion = false;  // 질문 시작 전 호스트 PiP 
 let isQuestionRequestActive = false;  // 질문 요청 활성화 여부 (토글용)
 let allCameraStreams = new Map();     // 모든 카메라 스트림 저장 (deviceId -> stream)
 let allCameraVideos = new Map();      // 모든 카메라 비디오 엘리먼트 저장 (deviceId -> video element)
+let broadcastVideoTracks = [];        // 방송 모드 비디오 트랙 추적
+let broadcastScreenTrack = null;      // 방송 모드 화면공유 트랙
+let broadcastCameraTrack = null;      // 방송 모드 카메라 트랙 (첫 번째)
+let broadcastAllCameras = new Map();  // 게스트가 수신한 모든 호스트 카메라 트랙 저장 (trackId -> {track, label})
 let firebaseListeners = {           // Firebase 리스너 정리를 위한 참조
   offers: null,
   answers: null,
