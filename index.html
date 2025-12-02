@@ -2761,19 +2761,25 @@ async function acceptGuest(vid, data, li){
       }
     }
     
-    // 모든 카메라 스트림을 게스트에게 전송
+    // 모든 카메라 스트림을 게스트에게 전송 (방송 모드와 미팅 모드 모두)
     if (allCameraStreams.size > 0) {
       let cameraIndex = 0;
       allCameraStreams.forEach((cameraStream, deviceId) => {
         const videoTrack = cameraStream.getVideoTracks()[0];
         if (videoTrack && videoTrack.readyState === 'live') {
-          const cameraLabel = videoTrack.label || `카메라 ${cameraIndex + 1}`;
-          const cameraMediaStream = new MediaStream([videoTrack]);
-          _pc.addTrack(videoTrack, cameraMediaStream);
-          log(`[Host] 게스트 ${vid}에게 카메라 전송: ${cameraLabel}`);
-          cameraIndex++;
+          try {
+            const cameraLabel = videoTrack.label || `카메라 ${cameraIndex + 1}`;
+            const cameraMediaStream = new MediaStream([videoTrack]);
+            _pc.addTrack(videoTrack, cameraMediaStream);
+            log(`[Host] 게스트 ${vid.substring(0,6)}에게 카메라 전송 (${comm} 모드): ${cameraLabel}`);
+            cameraIndex++;
+          } catch(e) {
+            console.warn(`[Host] 게스트 ${vid}에게 카메라 추가 실패:`, e);
+            log(`[Host] 게스트 ${vid.substring(0,6)}에게 카메라 전송 실패: ${e.message}`);
+          }
         }
       });
+      log(`[Host] 총 ${cameraIndex}개의 카메라를 게스트 ${vid.substring(0,6)}에게 전송 완료`);
     }
     preferH264(_pc);
 
@@ -2904,7 +2910,7 @@ async function startGuest(){
       }
       pc.addTransceiver('audio', { direction:'recvonly' });
     }else{
-      // 미팅: 로컬 카메라 캡처 후 전송
+      // 미팅: 로컬 카메라 캡처 후 전송 + 호스트의 모든 카메라 수신
       localStream = await getCameraStream();
       if (!localStream) {
         throw new Error('카메라 스트림을 획득할 수 없습니다');
@@ -2922,6 +2928,13 @@ async function startGuest(){
         }
         pc.addTrack(t, localStream);
       });
+      
+      // 호스트의 모든 카메라를 받기 위해 추가 트랜시버 생성
+      // 호스트가 전송할 수 있는 최대 카메라 수만큼 트랜시버 생성
+      for (let i = 0; i < 10; i++) {
+        pc.addTransceiver('video', { direction:'recvonly' }); // 호스트 카메라용
+      }
+      pc.addTransceiver('audio', { direction:'recvonly' }); // 호스트 오디오용
     }
 
   // 방송 모드에서 비디오 트랙 추적 초기화
@@ -3296,24 +3309,27 @@ async function startGuest(){
       
       if (isiOS) showIOSUnmuteOverlayIfNeeded(); else unmuteBtn.style.display='inline-block';
     }else{
-      // 미팅 모드: 호스트의 스트림을 표시
-      // 게스트는 호스트와만 연결되므로 하나의 비디오만 표시
-      const hostVideoId = 'host';
-      let videoEl = remoteVideos.get(hostVideoId);
-      if (!videoEl) {
-        videoEl = createRemoteVideoElement(hostVideoId, '호스트');
-        remoteVideos.set(hostVideoId, videoEl);
-      }
-      if (videoEl.srcObject !== stream) {
-        videoEl.srcObject = stream;
-        (async ()=>{ try{ 
-          videoEl.setAttribute('playsinline',''); 
-          videoEl.setAttribute('webkit-playsinline',''); 
-          await videoEl.play(); 
-        }catch(e){} })();
+      // 미팅 모드: 호스트의 모든 카메라를 수신하여 표시
+      if (track.kind === 'video') {
+        // 비디오 트랙인 경우 모든 카메라로 처리
+        const cameraLabel = track.label || `교수 카메라 ${broadcastAllCameras.size + 1}`;
+        broadcastAllCameras.set(track.id, { track, label: cameraLabel });
+        log(`[Guest] 미팅 모드 - 호스트 카메라 트랙 수신: label="${cameraLabel}" (총 ${broadcastAllCameras.size}개)`);
+        
+        // 모든 카메라를 그리드로 표시
+        displayGuestAllCameras();
+        
+        // 트랙 종료 시 처리
+        track.onended = () => {
+          broadcastAllCameras.delete(track.id);
+          displayGuestAllCameras(); // 그리드 업데이트
+          log(`[Guest] 미팅 모드 - 호스트 카메라 트랙 종료: ${cameraLabel}`);
+        };
+      } else if (track.kind === 'audio') {
+        // 오디오 트랙 처리
         audioMirror.srcObject = stream;
+        if (isiOS) showIOSUnmuteOverlayIfNeeded(); else unmuteBtn.style.display='inline-block';
       }
-      if (isiOS) showIOSUnmuteOverlayIfNeeded(); else unmuteBtn.style.display='inline-block';
     }
     log(`[${role}] tracks: ` + stream.getTracks().map(t=>t.kind).join(', '));
   };
