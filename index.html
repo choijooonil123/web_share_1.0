@@ -1193,6 +1193,10 @@ function displayGuestAllCameras(){
     if (guestCamerasContainer) {
       guestCamerasContainer.remove();
     }
+    // 화면공유도 없으면 player 숨기기
+    if (!broadcastScreenTrack && comm === 'broadcast') {
+      if (player) player.classList.add('hidden');
+    }
     return;
   }
   
@@ -1217,7 +1221,10 @@ function displayGuestAllCameras(){
     
     // meetingVideos 섹션에 추가 (방송 모드에서도 표시)
     if (meetingVideos) {
-      meetingVideos.appendChild(camerasContainer);
+      // 이미 추가되어 있지 않은 경우만 추가
+      if (!meetingVideos.contains(camerasContainer)) {
+        meetingVideos.appendChild(camerasContainer);
+      }
       meetingVideos.classList.remove('hidden');
     }
   }
@@ -1276,6 +1283,11 @@ function displayGuestAllCameras(){
   });
   
   log(`[Guest] 총 ${broadcastAllCameras.size}개의 교수 카메라 영상 표시 완료`);
+  
+  // 화면공유가 없고 카메라만 있을 때 player 숨기기
+  if (comm === 'broadcast' && !broadcastScreenTrack && broadcastAllCameras.size > 0) {
+    if (player) player.classList.add('hidden');
+  }
 }
 
 async function getScreenStream(){
@@ -2936,9 +2948,9 @@ async function startGuest(){
     console.log('[Guest] Track received:', { kind: track.kind, label: track.label, id: track.id, enabled: track.enabled });
     
     if (comm==='broadcast'){
-      // 방송 모드: player가 표시되어야 함
+      // 방송 모드: player가 표시되어야 함 (카메라 그리드는 별도로 표시)
       player.classList.remove('hidden');
-      meetingVideos.classList.add('hidden');
+      // meetingVideos는 카메라 그리드를 위해 숨기지 않음 (displayGuestAllCameras에서 처리)
       
       // 비디오 트랙인 경우 추적
       if (track.kind === 'video') {
@@ -2977,6 +2989,11 @@ async function startGuest(){
             audioMirror.srcObject = stream;
           }
           log('[Guest] 화면공유 스트림 수신 및 표시');
+          
+          // 모든 카메라 그리드 업데이트 (화면공유와 함께 표시)
+          if (broadcastAllCameras && broadcastAllCameras.size > 0) {
+            displayGuestAllCameras();
+          }
           
           // 카메라 트랙이 이미 수신된 경우 PiP 표시
           if (broadcastCameraTrack) {
