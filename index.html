@@ -1263,7 +1263,7 @@ async function displayAllCameras(){
       addIPCameraBtn.className = 'primary';
       addIPCameraBtn.style.cssText = 'margin-bottom: 12px; padding: 6px 12px; font-size: 12px;';
       addIPCameraBtn.addEventListener('click', () => {
-        const ipUrl = prompt('휴대폰 카메라 URL을 입력하세요\n\nDroidCam 사용 시:\n- WiFi: http://IP주소:4747/video\n- 예: http://192.168.0.100:4747/video\n\nIP Webcam 사용 시:\n- 예: http://192.168.0.100:8080/video\n\n또는 DroidCam이 가상 웹캠으로 인식되면 자동으로 감지됩니다.');
+        const ipUrl = prompt('휴대폰 카메라 URL을 입력하세요\n\nDroidCam 사용 시:\n- WiFi: http://IP주소:4747/video\n- 예: http://192.168.0.8:4747/video\n\nIP Webcam 사용 시:\n- 예: http://192.168.0.8:8080/video\n\n또는 DroidCam이 가상 웹캠으로 인식되면 자동으로 감지됩니다.');
         if (ipUrl && ipUrl.trim()) {
           addIPCamera(ipUrl.trim());
         }
