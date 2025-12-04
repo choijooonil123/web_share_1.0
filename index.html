@@ -11,8 +11,8 @@
     body{margin:0;font-family:ui-sans-serif,system-ui,Apple SD Gothic Neo,Noto Sans KR,Segoe UI,Roboto,sans-serif;color:var(--ink);background:radial-gradient(1000px 700px at 80% -10%,#1a2650 0%,#0b1020 45%)}
     header{padding:10px 20px;display:flex;flex-direction:column;gap:8px;position:relative;min-height:80px}
     .header-top{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
-    .header-left{display:flex;flex-direction:column;gap:4px}
-    .header-controls{display:flex;align-items:center;gap:12px;flex:1;justify-content:flex-start;flex-wrap:wrap}
+    .header-left{display:flex;flex-direction:column;gap:4px;flex:1}
+    .header-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
     .header-right{display:flex;align-items:center;gap:8px;margin-left:auto}
     .header-status-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
     .control-buttons{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:1000;background:rgba(16,24,58,.9);padding:10px;border-radius:12px;border:1px solid #2a3a77}
@@ -93,24 +93,24 @@
       <h1 style="margin:0;font-size:18px">김천대 본관 6층 사무엘실</h1>
       <div id="status" class="muted" style="font-size:12px">대기 중…</div>
     </div>
-    <div class="header-controls">
-      <div>
-        <label style="font-size:12px;margin:0">역할</label>
-        <div class="row" style="gap:4px">
-          <label class="row" style="margin:0;gap:4px"><input type="radio" name="role" value="host" checked> 교수</label>
-          <label class="row" style="margin:0;gap:4px"><input type="radio" name="role" value="guest"> 학생</label>
+    <div class="header-right">
+      <div class="header-controls">
+        <div>
+          <label style="font-size:12px;margin:0">역할</label>
+          <div class="row" style="gap:4px">
+            <label class="row" style="margin:0;gap:4px"><input type="radio" name="role" value="host" checked> 교수</label>
+            <label class="row" style="margin:0;gap:4px"><input type="radio" name="role" value="guest"> 학생</label>
+          </div>
+        </div>
+        <div>
+          <label style="font-size:12px;margin:0">이름</label>
+          <input id="userName" type="text" placeholder="이름 입력" style="width:120px;padding:6px 8px;font-size:12px" />
+        </div>
+        <div>
+          <label style="font-size:12px;margin:0">방 코드</label>
+          <input id="roomId" type="text" placeholder="예: rm-k3G7a9fQ2" style="width:150px;padding:6px 8px;font-size:12px" />
         </div>
       </div>
-      <div>
-        <label style="font-size:12px;margin:0">이름</label>
-        <input id="userName" type="text" placeholder="이름 입력" style="width:120px;padding:6px 8px;font-size:12px" />
-      </div>
-      <div>
-        <label style="font-size:12px;margin:0">방 코드</label>
-        <input id="roomId" type="text" placeholder="예: rm-k3G7a9fQ2" style="width:150px;padding:6px 8px;font-size:12px" />
-      </div>
-    </div>
-    <div class="header-right">
       <button class="primary" id="startBtn" style="padding:8px 16px">입실</button>
       <button class="danger" id="stopBtn" disabled style="padding:8px 16px">퇴실</button>
     </div>
@@ -358,6 +358,8 @@ let hostPiPWasActiveBeforeQuestion = false;  // 질문 시작 전 호스트 PiP 
 let isQuestionRequestActive = false;  // 질문 요청 활성화 여부 (토글용)
 let allCameraStreams = new Map();     // 모든 카메라 스트림 저장 (deviceId -> stream)
 let allCameraVideos = new Map();      // 모든 카메라 비디오 엘리먼트 저장 (deviceId -> video element)
+let ipCameraUrls = new Set();         // IP 카메라 URL 저장
+let ipCameraStreams = new Map();      // IP 카메라 스트림 저장 (url -> {stream, videoElement})
 let broadcastVideoTracks = [];        // 방송 모드 비디오 트랙 추적
 let broadcastScreenTrack = null;      // 방송 모드 화면공유 트랙
 let broadcastCameraTrack = null;      // 방송 모드 카메라 트랙 (첫 번째)
@@ -1032,6 +1034,183 @@ async function getCameraStreamByDeviceId(deviceId, deviceLabel){
   }
 }
 
+// IP 카메라 추가 (휴대폰 WiFi 카메라용)
+async function addIPCamera(ipUrl){
+  try {
+    if (ipCameraUrls.has(ipUrl)) {
+      toast('이미 추가된 IP 카메라입니다');
+      return;
+    }
+    
+    ipCameraUrls.add(ipUrl);
+    log(`[IP Camera] IP 카메라 추가: ${ipUrl}`);
+    
+    // IP 카메라 스트림 생성
+    const video = document.createElement('video');
+    video.crossOrigin = 'anonymous';
+    video.autoplay = true;
+    video.playsInline = true;
+    video.muted = true;
+    video.src = ipUrl;
+    
+    // canvas를 사용하여 MediaStream 생성
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = 640;
+    canvas.height = 480;
+    
+    let stream = null;
+    
+    video.onloadedmetadata = () => {
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+    };
+    
+    const drawFrame = () => {
+      if (video.readyState >= 2 && video.videoWidth > 0) {
+        try {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        } catch(e) {
+          console.warn('Canvas drawImage 오류:', e);
+        }
+      }
+      requestAnimationFrame(drawFrame);
+    };
+    
+    video.onplay = () => {
+      drawFrame();
+    };
+    
+    // canvas에서 MediaStream 생성
+    stream = canvas.captureStream(30);
+    
+    // 비디오 재생 시도
+    try {
+      await video.play();
+    } catch(e) {
+      console.warn('IP 카메라 비디오 재생 실패:', e);
+      log(`[IP Camera] 비디오 재생 실패: ${e.message}`);
+    }
+    
+    ipCameraStreams.set(ipUrl, { stream, videoElement: video, canvas });
+    
+    // 카메라 그리드에 추가
+    const camerasGrid = document.getElementById('allCamerasGrid');
+    if (camerasGrid) {
+      const videoWrapper = document.createElement('div');
+      videoWrapper.className = 'camera-video-wrapper';
+      videoWrapper.style.cssText = 'position: relative; background: #000; border-radius: 8px; overflow: hidden; min-height: 200px;';
+      videoWrapper.dataset.ipUrl = ipUrl;
+      
+      const displayVideo = document.createElement('video');
+      displayVideo.autoplay = true;
+      displayVideo.playsInline = true;
+      displayVideo.muted = true;
+      displayVideo.style.cssText = 'width: 100%; height: auto; display: block;';
+      displayVideo.srcObject = stream;
+      
+      const label = document.createElement('small');
+      label.textContent = `WiFi 카메라 (${ipUrl})`;
+      label.style.cssText = 'position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,0.7); color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 11px; z-index: 10;';
+      
+      // 전체화면 버튼
+      const fullscreenBtn = document.createElement('button');
+      fullscreenBtn.textContent = '⛶';
+      fullscreenBtn.className = 'camera-fullscreen-btn';
+      fullscreenBtn.style.cssText = 'position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,0.7); color: #fff; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 14px; z-index: 10;';
+      fullscreenBtn.title = '전체화면';
+      fullscreenBtn.addEventListener('click', () => {
+        if (fsVideo) {
+          fsVideo.srcObject = stream;
+          fullscreenVideo.classList.add('show');
+          fsVideo.setAttribute('playsinline', '');
+          fsVideo.setAttribute('webkit-playsinline', '');
+          fsVideo.play().catch(e => {
+            console.warn('IP 카메라 전체화면 재생 실패:', e);
+          });
+        }
+      });
+      
+      // 삭제 버튼
+      const deleteBtn = document.createElement('button');
+      deleteBtn.textContent = '×';
+      deleteBtn.style.cssText = 'position: absolute; top: 8px; right: 40px; background: rgba(255,106,106,0.8); color: #fff; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 14px; z-index: 10;';
+      deleteBtn.title = '삭제';
+      deleteBtn.addEventListener('click', () => {
+        removeIPCamera(ipUrl);
+      });
+      
+      videoWrapper.appendChild(displayVideo);
+      videoWrapper.appendChild(label);
+      videoWrapper.appendChild(fullscreenBtn);
+      videoWrapper.appendChild(deleteBtn);
+      camerasGrid.appendChild(videoWrapper);
+      
+      // 비디오 재생 시도
+      try {
+        await displayVideo.play();
+      } catch(playError) {
+        console.warn(`IP 카메라 비디오 재생 실패:`, playError);
+      }
+    }
+    
+    // allCameraStreams에도 추가 (게스트에게 전송하기 위해)
+    allCameraStreams.set(`ip-${ipUrl}`, stream);
+    
+    log(`[IP Camera] IP 카메라 추가 완료: ${ipUrl}`);
+    toast('WiFi 카메라가 추가되었습니다');
+    
+    // 기존 게스트 연결에도 IP 카메라 추가
+    if (role === 'host' && peerConnections.size > 0) {
+      peerConnections.forEach((_pc, vid) => {
+        try {
+          const videoTrack = stream.getVideoTracks()[0];
+          if (videoTrack) {
+            const cameraMediaStream = new MediaStream([videoTrack]);
+            _pc.addTrack(videoTrack, cameraMediaStream);
+            log(`[Host] 기존 게스트 ${vid.substring(0,6)}에게 IP 카메라 추가: ${ipUrl}`);
+          }
+        } catch(e) {
+          console.warn(`[Host] 게스트 ${vid}에게 IP 카메라 추가 실패:`, e);
+        }
+      });
+    }
+    
+  } catch(e) {
+    log(`[IP Camera] IP 카메라 추가 실패: ${e.message}`);
+    console.error('IP 카메라 추가 오류:', e);
+    toast('IP 카메라 추가 실패: ' + e.message);
+    ipCameraUrls.delete(ipUrl);
+  }
+}
+
+// IP 카메라 제거
+function removeIPCamera(ipUrl){
+  const ipCamera = ipCameraStreams.get(ipUrl);
+  if (ipCamera) {
+    if (ipCamera.videoElement) {
+      ipCamera.videoElement.pause();
+      ipCamera.videoElement.src = '';
+    }
+    if (ipCamera.stream) {
+      ipCamera.stream.getTracks().forEach(track => track.stop());
+    }
+    ipCameraStreams.delete(ipUrl);
+  }
+  
+  allCameraStreams.delete(`ip-${ipUrl}`);
+  ipCameraUrls.delete(ipUrl);
+  
+  // UI에서 제거
+  const videoWrapper = document.querySelector(`[data-ip-url="${ipUrl}"]`);
+  if (videoWrapper) {
+    videoWrapper.remove();
+  }
+  
+  log(`[IP Camera] IP 카메라 제거: ${ipUrl}`);
+  toast('WiFi 카메라가 제거되었습니다');
+}
+
 // 모든 카메라 영상 표시
 async function displayAllCameras(){
   try {
@@ -1041,7 +1220,7 @@ async function displayAllCameras(){
     // 모든 카메라 감지
     const cameras = await enumerateAllCameras();
     
-    if (cameras.length === 0) {
+    if (cameras.length === 0 && ipCameraUrls.size === 0) {
       log('[Camera] 감지된 카메라가 없습니다');
       toast('카메라를 찾을 수 없습니다');
       return;
@@ -1059,6 +1238,19 @@ async function displayAllCameras(){
       title.textContent = '연결된 모든 카메라';
       title.style.cssText = 'margin: 0 0 12px 0; font-size: 16px; color: #eaf0ff;';
       camerasContainer.appendChild(title);
+      
+      // IP 카메라 추가 버튼
+      const addIPCameraBtn = document.createElement('button');
+      addIPCameraBtn.textContent = '+ WiFi 카메라 추가';
+      addIPCameraBtn.className = 'primary';
+      addIPCameraBtn.style.cssText = 'margin-bottom: 12px; padding: 6px 12px; font-size: 12px;';
+      addIPCameraBtn.addEventListener('click', () => {
+        const ipUrl = prompt('휴대폰 IP 카메라 URL을 입력하세요\n예: http://192.168.0.100:8080/video\n(IP Webcam 앱 사용 시)');
+        if (ipUrl && ipUrl.trim()) {
+          addIPCamera(ipUrl.trim());
+        }
+      });
+      camerasContainer.appendChild(addIPCameraBtn);
       
       const camerasGrid = document.createElement('div');
       camerasGrid.id = 'allCamerasGrid';
@@ -1183,6 +1375,19 @@ function cleanupAllCameras(){
   });
   allCameraVideos.clear();
   
+  // IP 카메라 정리
+  ipCameraStreams.forEach((ipCamera, ipUrl) => {
+    if (ipCamera.videoElement) {
+      ipCamera.videoElement.pause();
+      ipCamera.videoElement.src = '';
+    }
+    if (ipCamera.stream) {
+      ipCamera.stream.getTracks().forEach(track => track.stop());
+    }
+  });
+  ipCameraStreams.clear();
+  ipCameraUrls.clear();
+  
   const camerasContainer = document.getElementById('allCamerasContainer');
   if (camerasContainer) {
     camerasContainer.remove();
@@ -1268,8 +1473,30 @@ function displayGuestAllCameras(){
     labelEl.textContent = label;
     labelEl.style.cssText = 'position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,0.7); color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 11px; z-index: 10;';
     
+    // 전체화면 버튼 추가
+    const fullscreenBtn = document.createElement('button');
+    fullscreenBtn.textContent = '⛶';
+    fullscreenBtn.className = 'camera-fullscreen-btn';
+    fullscreenBtn.style.cssText = 'position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,0.7); color: #fff; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 14px; z-index: 10;';
+    fullscreenBtn.title = '전체화면';
+    fullscreenBtn.addEventListener('click', () => {
+      // 해당 카메라를 전체화면으로 표시
+      const cameraStream = new MediaStream([track]);
+      if (fsVideo) {
+        fsVideo.srcObject = cameraStream;
+        fullscreenVideo.classList.add('show');
+        fsVideo.setAttribute('playsinline', '');
+        fsVideo.setAttribute('webkit-playsinline', '');
+        fsVideo.play().catch(e => {
+          console.warn('Fullscreen camera video play failed:', e);
+        });
+        log(`[Guest] 카메라 전체화면 표시: ${label}`);
+      }
+    });
+    
     videoWrapper.appendChild(video);
     videoWrapper.appendChild(labelEl);
+    videoWrapper.appendChild(fullscreenBtn);
     camerasGrid.appendChild(videoWrapper);
     
     // 비디오 재생 시도
@@ -3011,142 +3238,11 @@ async function startGuest(){
           if (broadcastAllCameras && broadcastAllCameras.size > 0) {
             displayGuestAllCameras();
           }
-          
-          // 카메라 트랙이 이미 수신된 경우 PiP 표시
-          if (broadcastCameraTrack) {
-            log('[Guest] 화면공유 수신 - 기존 카메라 트랙으로 PiP 표시 시작');
-            const cameraStream = new MediaStream([broadcastCameraTrack]);
-            pipVideo.srcObject = cameraStream;
-            pipOverlay.classList.add('show');
-            log('[Guest] PiP 오버레이 표시됨');
-            
-            // 전체화면 PiP도 설정
-            if (fullscreenPipVideo) {
-              const fullscreenCameraStream = new MediaStream([broadcastCameraTrack]);
-              fullscreenPipVideo.srcObject = fullscreenCameraStream;
-              if (fullscreenVideo.classList.contains('show')) {
-                fullscreenPipOverlay.classList.add('show');
-              }
-            }
-            
-            // PiP 비디오 재생
-            const playPipVideo = async () => {
-              try {
-                pipVideo.setAttribute('playsinline', '');
-                pipVideo.setAttribute('webkit-playsinline', '');
-                pipVideo.muted = true;
-                await pipVideo.play();
-                log('[Guest] PiP 비디오 재생 성공');
-                
-                if (fullscreenPipVideo && fullscreenPipVideo.srcObject) {
-                  fullscreenPipVideo.setAttribute('playsinline', '');
-                  fullscreenPipVideo.setAttribute('webkit-playsinline', '');
-                  fullscreenPipVideo.muted = true;
-                  await fullscreenPipVideo.play();
-                }
-                
-                log('[Guest] 화면공유 수신 후 카메라 PiP 표시 완료');
-              } catch(e) {
-                console.warn('PiP video play failed:', e);
-                log('[Guest] PiP 비디오 재생 실패: ' + e.message + ' (재시도 중...)');
-                setTimeout(() => {
-                  if (pipVideo.srcObject && broadcastCameraTrack) {
-                    pipVideo.play().catch(e2 => {
-                      console.warn('PiP video play retry failed:', e2);
-                    });
-                  }
-                  if (fullscreenPipVideo && fullscreenPipVideo.srcObject) {
-                    fullscreenPipVideo.play().catch(e2 => {});
-                  }
-                }, 500);
-              }
-            };
-            playPipVideo();
-          } else {
-            log('[Guest] 화면공유 수신 - 카메라 트랙이 아직 없음');
-          }
         } else if (!isScreenTrack) {
-          // 카메라 트랙 - 모든 카메라를 저장하고 표시
+          // 카메라 트랙 - 모든 카메라를 저장하고 표시 (중복 제거: 그리드에만 표시)
           const cameraLabel = track.label || `카메라 ${broadcastAllCameras.size + 1}`;
           broadcastAllCameras.set(track.id, { track, label: cameraLabel });
-          
-          // 첫 번째 카메라는 기존 PiP 방식 유지 (하위 호환성)
-          if (!broadcastCameraTrack) {
-            broadcastCameraTrack = track;
-            log(`[Guest] 첫 번째 카메라 트랙 수신: label="${cameraLabel}", screenTrack=${!!broadcastScreenTrack}`);
-            
-            // 화면공유 트랙이 이미 있으면 PiP 표시, 없으면 나중에 표시
-            if (broadcastScreenTrack) {
-              log('[Guest] 화면공유 트랙이 이미 있음, 카메라 PiP 표시 시작');
-              const cameraStream = new MediaStream([track]);
-              
-              // 일반 PiP 설정
-              pipVideo.srcObject = cameraStream;
-              pipOverlay.classList.add('show');
-              
-              // 전체화면 PiP도 설정
-              if (fullscreenPipVideo) {
-                const fullscreenCameraStream = new MediaStream([track]);
-                fullscreenPipVideo.srcObject = fullscreenCameraStream;
-                if (fullscreenVideo.classList.contains('show')) {
-                  fullscreenPipOverlay.classList.add('show');
-                }
-              }
-              
-              // PiP 비디오 재생 시도
-              const playPipVideo = async () => {
-                try {
-                  pipVideo.setAttribute('playsinline', '');
-                  pipVideo.setAttribute('webkit-playsinline', '');
-                  pipVideo.muted = true;
-                  await pipVideo.play();
-                  
-                  if (fullscreenPipVideo && fullscreenPipVideo.srcObject) {
-                    fullscreenPipVideo.setAttribute('playsinline', '');
-                    fullscreenPipVideo.setAttribute('webkit-playsinline', '');
-                    fullscreenPipVideo.muted = true;
-                    await fullscreenPipVideo.play();
-                  }
-                  
-                  log('[Guest] 호스트 카메라 PiP 표시 및 재생 성공');
-                } catch(e) {
-                  console.warn('PiP video play failed:', e);
-                  log('[Guest] PiP 비디오 재생 실패: ' + e.message + ' (재시도 중...)');
-                  setTimeout(() => {
-                    if (pipVideo.srcObject && broadcastCameraTrack) {
-                      pipVideo.play().catch(e2 => {
-                        console.warn('PiP video play retry failed:', e2);
-                      });
-                    }
-                    if (fullscreenPipVideo && fullscreenPipVideo.srcObject) {
-                      fullscreenPipVideo.play().catch(e2 => {
-                        console.warn('Fullscreen PiP video play retry failed:', e2);
-                      });
-                    }
-                  }, 500);
-                }
-              };
-              playPipVideo();
-            } else {
-              log('[Guest] 카메라 트랙 수신 (화면공유 대기 중) - PiP는 화면공유 수신 후 표시됨');
-            }
-            
-            // 트랙 종료 시 PiP 닫기
-            track.onended = () => {
-              pipOverlay.classList.remove('show');
-              pipVideo.srcObject = null;
-              if (fullscreenPipOverlay) {
-                fullscreenPipOverlay.classList.remove('show');
-                if (fullscreenPipVideo) fullscreenPipVideo.srcObject = null;
-              }
-              broadcastCameraTrack = null;
-              broadcastAllCameras.delete(track.id);
-              log('[Guest] 호스트 카메라 종료, PiP 닫힘');
-            };
-          } else {
-            // 추가 카메라 트랙 수신
-            log(`[Guest] 추가 카메라 트랙 수신: label="${cameraLabel}" (총 ${broadcastAllCameras.size}개)`);
-          }
+          log(`[Guest] 카메라 트랙 수신: label="${cameraLabel}" (총 ${broadcastAllCameras.size}개)`);
           
           // 모든 카메라를 그리드로 표시
           displayGuestAllCameras();
@@ -3154,15 +3250,6 @@ async function startGuest(){
           // 트랙 종료 시 처리
           track.onended = () => {
             broadcastAllCameras.delete(track.id);
-            if (broadcastCameraTrack === track) {
-              broadcastCameraTrack = null;
-              pipOverlay.classList.remove('show');
-              pipVideo.srcObject = null;
-              if (fullscreenPipOverlay) {
-                fullscreenPipOverlay.classList.remove('show');
-                if (fullscreenPipVideo) fullscreenPipVideo.srcObject = null;
-              }
-            }
             displayGuestAllCameras(); // 그리드 업데이트
             log(`[Guest] 카메라 트랙 종료: ${cameraLabel}`);
           };
@@ -3227,72 +3314,20 @@ async function startGuest(){
             };
             playPipVideo();
           }
-        } else if (!broadcastCameraTrack && broadcastScreenTrack) {
-          // 두 번째 비디오 트랙은 카메라로 처리
-          broadcastCameraTrack = track;
-          const cameraStream = new MediaStream([track]);
+        } else if (!isScreenTrack) {
+          // 카메라 트랙 - 모든 카메라를 저장하고 표시 (중복 제거: 그리드에만 표시)
+          const cameraLabel = track.label || `카메라 ${broadcastAllCameras.size + 1}`;
+          broadcastAllCameras.set(track.id, { track, label: cameraLabel });
+          log(`[Guest] 카메라 트랙 수신: label="${cameraLabel}" (총 ${broadcastAllCameras.size}개)`);
           
-          // 일반 PiP 설정
-          pipVideo.srcObject = cameraStream;
-          pipOverlay.classList.add('show');
+          // 모든 카메라를 그리드로 표시
+          displayGuestAllCameras();
           
-          // 전체화면 PiP도 설정
-          if (fullscreenPipVideo) {
-            // 같은 트랙을 사용하는 새 스트림 생성
-            const fullscreenCameraStream = new MediaStream([track]);
-            fullscreenPipVideo.srcObject = fullscreenCameraStream;
-            // 전체화면이 열려있으면 전체화면 PiP도 표시
-            if (fullscreenVideo.classList.contains('show')) {
-              fullscreenPipOverlay.classList.add('show');
-            }
-          }
-          
-          // PiP 비디오 재생 시도 (재시도 포함)
-          const playPipVideo = async () => {
-            try {
-              pipVideo.setAttribute('playsinline', '');
-              pipVideo.setAttribute('webkit-playsinline', '');
-              pipVideo.muted = true; // 자동재생을 위해 음소거
-              await pipVideo.play();
-              
-              // 전체화면 PiP도 재생
-              if (fullscreenPipVideo && fullscreenPipVideo.srcObject) {
-                fullscreenPipVideo.setAttribute('playsinline', '');
-                fullscreenPipVideo.setAttribute('webkit-playsinline', '');
-                fullscreenPipVideo.muted = true;
-                await fullscreenPipVideo.play();
-              }
-              
-              log('[Guest] 두 번째 비디오 스트림 수신 (호스트 카메라 PiP 표시, label: ' + track.label + ')');
-            } catch(e) {
-              console.warn('PiP video play failed:', e);
-              log('[Guest] PiP 비디오 재생 실패: ' + e.message + ' (재시도 중...)');
-              // 재시도
-              setTimeout(() => {
-                if (pipVideo.srcObject && broadcastCameraTrack) {
-                  pipVideo.play().catch(e2 => {
-                    console.warn('PiP video play retry failed:', e2);
-                  });
-                }
-                if (fullscreenPipVideo && fullscreenPipVideo.srcObject) {
-                  fullscreenPipVideo.play().catch(e2 => {
-                    console.warn('Fullscreen PiP video play retry failed:', e2);
-                  });
-                }
-              }, 500);
-            }
-          };
-          playPipVideo();
-          
+          // 트랙 종료 시 처리
           track.onended = () => {
-            pipOverlay.classList.remove('show');
-            pipVideo.srcObject = null;
-            if (fullscreenPipOverlay) {
-              fullscreenPipOverlay.classList.remove('show');
-              if (fullscreenPipVideo) fullscreenPipVideo.srcObject = null;
-            }
-            broadcastCameraTrack = null;
-            log('[Guest] 호스트 카메라 종료, PiP 닫힘');
+            broadcastAllCameras.delete(track.id);
+            displayGuestAllCameras(); // 그리드 업데이트
+            log(`[Guest] 카메라 트랙 종료: ${cameraLabel}`);
           };
         } else {
           log(`[Guest] 비디오 트랙 무시됨 (이미 처리됨): label=${track.label}`);
