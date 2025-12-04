@@ -1045,13 +1045,30 @@ async function addIPCamera(ipUrl){
     ipCameraUrls.add(ipUrl);
     log(`[IP Camera] IP 카메라 추가: ${ipUrl}`);
     
+    // DroidCam URL 형식 지원
+    // DroidCam 기본 포트: 4747
+    // 형식: http://IP주소:4747/video 또는 http://IP주소:4747/mjpegfeed?640x480
+    let finalUrl = ipUrl;
+    if (!ipUrl.includes('://')) {
+      // URL 형식이 아니면 http:// 추가
+      finalUrl = 'http://' + ipUrl;
+    }
+    if (!finalUrl.includes('/video') && !finalUrl.includes('/mjpegfeed')) {
+      // 경로가 없으면 /video 추가 (DroidCam 기본)
+      if (finalUrl.endsWith('/')) {
+        finalUrl += 'video';
+      } else {
+        finalUrl += '/video';
+      }
+    }
+    
     // IP 카메라 스트림 생성
     const video = document.createElement('video');
     video.crossOrigin = 'anonymous';
     video.autoplay = true;
     video.playsInline = true;
     video.muted = true;
-    video.src = ipUrl;
+    video.src = finalUrl;
     
     // canvas를 사용하여 MediaStream 생성
     const canvas = document.createElement('canvas');
@@ -1092,7 +1109,7 @@ async function addIPCamera(ipUrl){
       log(`[IP Camera] 비디오 재생 실패: ${e.message}`);
     }
     
-    ipCameraStreams.set(ipUrl, { stream, videoElement: video, canvas });
+    ipCameraStreams.set(ipUrl, { stream, videoElement: video, canvas, finalUrl });
     
     // 카메라 그리드에 추가
     const camerasGrid = document.getElementById('allCamerasGrid');
@@ -1110,7 +1127,8 @@ async function addIPCamera(ipUrl){
       displayVideo.srcObject = stream;
       
       const label = document.createElement('small');
-      label.textContent = `WiFi 카메라 (${ipUrl})`;
+      const displayUrl = finalUrl.length > 50 ? finalUrl.substring(0, 47) + '...' : finalUrl;
+      label.textContent = `WiFi 카메라 (${displayUrl})`;
       label.style.cssText = 'position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,0.7); color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 11px; z-index: 10;';
       
       // 전체화면 버튼
@@ -1157,8 +1175,8 @@ async function addIPCamera(ipUrl){
     // allCameraStreams에도 추가 (게스트에게 전송하기 위해)
     allCameraStreams.set(`ip-${ipUrl}`, stream);
     
-    log(`[IP Camera] IP 카메라 추가 완료: ${ipUrl}`);
-    toast('WiFi 카메라가 추가되었습니다');
+    log(`[IP Camera] DroidCam/IP 카메라 추가 완료: ${finalUrl}`);
+    toast('WiFi 카메라(DroidCam)가 추가되었습니다');
     
     // 기존 게스트 연결에도 IP 카메라 추가
     if (role === 'host' && peerConnections.size > 0) {
@@ -1245,7 +1263,7 @@ async function displayAllCameras(){
       addIPCameraBtn.className = 'primary';
       addIPCameraBtn.style.cssText = 'margin-bottom: 12px; padding: 6px 12px; font-size: 12px;';
       addIPCameraBtn.addEventListener('click', () => {
-        const ipUrl = prompt('휴대폰 IP 카메라 URL을 입력하세요\n예: http://192.168.0.100:8080/video\n(IP Webcam 앱 사용 시)');
+        const ipUrl = prompt('휴대폰 카메라 URL을 입력하세요\n\nDroidCam 사용 시:\n- WiFi: http://IP주소:4747/video\n- 예: http://192.168.0.100:4747/video\n\nIP Webcam 사용 시:\n- 예: http://192.168.0.100:8080/video\n\n또는 DroidCam이 가상 웹캠으로 인식되면 자동으로 감지됩니다.');
         if (ipUrl && ipUrl.trim()) {
           addIPCamera(ipUrl.trim());
         }
