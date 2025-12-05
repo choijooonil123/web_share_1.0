@@ -112,7 +112,7 @@
           <input id="professorId" type="text" placeholder="사번 입력" style="width:100px;padding:6px 8px;font-size:12px" />
         </div>
         <div>
-          <label style="font-size:12px;margin:0">과목명칭</label>
+          <label style="font-size:12px;margin:0">과목명</label>
           <input id="roomId" type="text" placeholder="과목명을 입력하세요" style="width:150px;padding:6px 8px;font-size:12px" />
         </div>
       </div>
@@ -121,8 +121,8 @@
       <!-- 교수 전용 버튼 -->
       <button class="primary" id="classStartBtn" style="padding:8px 16px;display:none">수업시작</button>
       <button class="danger" id="classEndBtn" style="padding:8px 16px;display:none">수업종료</button>
-      <!-- 수강생 명단 버튼 -->
-      <button id="studentListBtn" style="padding:8px 16px;display:none;background:#6aa6ff">수강생 명단</button>
+      <!-- 수강생 버튼 -->
+      <button id="studentListBtn" style="padding:8px 16px;display:none;background:#6aa6ff">수강생</button>
       <!-- 출석확인 버튼 -->
       <button id="attendanceCheckBtn" style="padding:8px 16px;display:none;background:#4cd97b">출석확인</button>
     </div>
@@ -479,7 +479,7 @@ function logStatus(msg){ if (statusEl) statusEl.textContent = msg; }
 function log(msg){ console.log(msg); if (logEl) { logEl.textContent += msg + '\n'; logEl.scrollTop = logEl.scrollHeight; } }
 function toast(msg){ toastEl.textContent = msg; toastEl.style.display='block'; setTimeout(()=>toastEl.style.display='none', 1800); }
 function randomId(len=10){ const c='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'; let s=''; for(let i=0;i<len;i++) s+=c[Math.floor(Math.random()*c.length)]; return s; }
-// generateRoomId 함수 제거 - 과목명칭은 수동 입력만 가능
+// generateRoomId 함수 제거 - 과목명은 수동 입력만 가능
 const isiOS = (() => { const ua = navigator.userAgent||''; const iOS=/iPad|iPhone|iPod/.test(ua); const iPadOS13Plus=navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1; return iOS||iPadOS13Plus; })();
 
 /* ---------------- UI bindings ---------------- */
@@ -580,7 +580,7 @@ if (shareScreenBtn) shareScreenBtn.addEventListener('click', async ()=>{
   }
 });
 
-// 카메라 PiP 시작 함수
+// 카메라 PiP 시작 함수 (별도 팝업 창 사용)
 async function startCameraPiP(cameraStreamToUse) {
   if (!cameraStreamToUse) {
     // professorCameraStream이 없으면 localStream에서 카메라 트랙 추출
@@ -599,38 +599,13 @@ async function startCameraPiP(cameraStreamToUse) {
   }
   
   try {
-    // PiP용 비디오 엘리먼트 생성 (숨김)
-    if (!professorCameraPiPVideo) {
-      professorCameraPiPVideo = document.createElement('video');
-      professorCameraPiPVideo.style.position = 'fixed';
-      professorCameraPiPVideo.style.top = '-9999px';
-      professorCameraPiPVideo.style.left = '-9999px';
-      professorCameraPiPVideo.style.width = '320px';
-      professorCameraPiPVideo.style.height = '240px';
-      professorCameraPiPVideo.autoplay = true;
-      professorCameraPiPVideo.muted = true;
-      professorCameraPiPVideo.playsInline = true;
-      professorCameraPiPVideo.setAttribute('playsinline', '');
-      professorCameraPiPVideo.setAttribute('webkit-playsinline', '');
-      document.body.appendChild(professorCameraPiPVideo);
-      log('[Professor] PiP용 비디오 엘리먼트 생성');
-    }
-    
-    // 스트림 설정
-    professorCameraPiPVideo.srcObject = cameraStreamToUse;
-    await professorCameraPiPVideo.play();
-    log('[Professor] PiP 비디오 재생 시작');
-    
-    // Picture-in-Picture 모드 진입
-    if (!document.pictureInPictureElement) {
-      if (document.pictureInPictureEnabled && professorCameraPiPVideo.requestPictureInPicture) {
-        await professorCameraPiPVideo.requestPictureInPicture();
-        log('[Professor] Picture-in-Picture 모드 시작');
-      } else {
-        toast('이 브라우저는 PiP를 지원하지 않습니다');
-        log('[Professor] PiP 미지원 브라우저');
-      }
-    }
+    // 별도 창으로 카메라 PiP 표시
+    const screenInfo = {
+      screenWidth: window.screen.width,
+      screenHeight: window.screen.height
+    };
+    openProfessorCameraWindow(cameraStreamToUse, false, screenInfo);
+    log('[Professor] 카메라 PiP 창 열림');
   } catch(e) {
     console.error('카메라 PiP 실패:', e);
     log('[Professor] 카메라 PiP 실패: ' + e.message);
@@ -638,7 +613,7 @@ async function startCameraPiP(cameraStreamToUse) {
   }
 }
 
-// 교수 카메라 Picture-in-Picture 모드 (수동 버튼)
+// 교수 카메라 PiP 모드 (수동 버튼) - 별도 창 사용
 if (openCameraPiPBtn) {
   openCameraPiPBtn.addEventListener('click', async () => {
     const cameraStreamToUse = professorCameraStream || (localStream ? new MediaStream([localStream.getVideoTracks()[0]]) : null);
@@ -649,18 +624,19 @@ if (openCameraPiPBtn) {
     }
     
     try {
-      if (document.pictureInPictureElement) {
-        // 이미 PiP 모드면 종료
-        await document.exitPictureInPicture();
-        toast('Picture-in-Picture 모드 종료');
-        log('[Professor] Picture-in-Picture 모드 종료');
+      // 이미 카메라 창이 열려있으면 닫기
+      if (professorCameraWindow && !professorCameraWindow.closed) {
+        professorCameraWindow.close();
+        professorCameraWindow = null;
+        toast('카메라 PiP 창 닫힘');
+        log('[Professor] 카메라 PiP 창 닫힘');
       } else {
         await startCameraPiP(cameraStreamToUse);
-        toast('Picture-in-Picture 모드 시작');
+        toast('카메라 PiP 창 열림');
       }
     } catch(e) {
-      console.error('Picture-in-Picture 실패:', e);
-      toast('Picture-in-Picture를 사용할 수 없습니다: ' + e.message);
+      console.error('카메라 PiP 실패:', e);
+      toast('카메라 PiP를 사용할 수 없습니다: ' + e.message);
     }
   });
 }
@@ -2414,7 +2390,7 @@ async function stopScreenShare(){
 async function saveStudentList() {
   const targetRoomId = roomId || (roomIdInput ? roomIdInput.value.trim() : '');
   if (!targetRoomId) {
-    toast('과목명칭을 먼저 입력해주세요');
+    toast('과목명을 먼저 입력해주세요');
     return;
   }
   if (role !== 'professor') return;
@@ -2523,7 +2499,7 @@ async function loadStudentList(targetRoomIdOverride) {
 async function clearStudentList() {
   const targetRoomId = roomId || (roomIdInput ? roomIdInput.value.trim() : '');
   if (!targetRoomId) {
-    toast('과목명칭을 먼저 입력해주세요');
+    toast('과목명을 먼저 입력해주세요');
     return;
   }
   if (role !== 'professor') return;
@@ -2551,7 +2527,7 @@ async function clearStudentList() {
 
 async function checkStudentInList(studentName) {
   const targetRoomId = roomId || (roomIdInput ? roomIdInput.value.trim() : '');
-  if (!targetRoomId) return true; // 과목명칭이 없으면 모두 허용
+  if (!targetRoomId) return true; // 과목명이 없으면 모두 허용
   
   try {
     // 별도 경로에서 확인
@@ -2869,7 +2845,7 @@ if (studentListBtn) {
   });
 }
 
-// 과목명칭 입력 시 자동으로 저장된 학생명단 불러오기
+// 과목명 입력 시 자동으로 저장된 학생명단 불러오기
 let roomIdInputTimeout = null;
 if (roomIdInput) {
   roomIdInput.addEventListener('input', () => {
@@ -2878,7 +2854,7 @@ if (roomIdInput) {
     roomIdInputTimeout = setTimeout(async () => {
       const inputRoomId = roomIdInput.value.trim();
       if (inputRoomId && role === 'professor') {
-        log(`[StudentList] 과목명칭 입력됨: ${inputRoomId} - 저장된 학생명단 확인 중...`);
+        log(`[StudentList] 과목명 입력됨: ${inputRoomId} - 저장된 학생명단 확인 중...`);
         await loadStudentList(inputRoomId);
       }
     }, 500); // 500ms 디바운스
@@ -2893,7 +2869,7 @@ if (roomIdInput) {
   });
 }
 
-// 페이지 로드 시 저장된 과목명칭이 있으면 학생명단도 불러오기
+// 페이지 로드 시 저장된 과목명이 있으면 학생명단도 불러오기
 document.addEventListener('DOMContentLoaded', async () => {
   // 약간의 지연 후 실행 (Firebase 초기화 대기)
   setTimeout(async () => {
@@ -3013,11 +2989,11 @@ async function startProfessor(){
     
     roomId = (roomIdInput ? roomIdInput.value||'' : '').replace(/\s+/g,''); 
     if(!roomId){ 
-      toast('과목명칭을 입력해주세요');
-      throw new Error('과목명칭을 입력해주세요');
+      toast('과목명을 입력해주세요');
+      throw new Error('과목명을 입력해주세요');
     }
     
-    // 강의실이 시작될 때 기존 데이터 모두 초기화 (과거에 사용된 과목명칭라도 새로 시작)
+    // 강의실이 시작될 때 기존 데이터 모두 초기화 (과거에 사용된 과목명라도 새로 시작)
     try {
       await db.ref(`rooms/${roomId}`).remove();
       log('[Professor] 기존 강의실 데이터 초기화 완료');
@@ -3158,8 +3134,8 @@ async function startProfessor(){
       }, 200);
     }
     
-    logStatus(`교수 대기/송출 중… 과목명칭: ${roomId} · 모드: ${comm}`);
-    toast('학생에게 과목명칭를 공유하세요');
+    logStatus(`교수 대기/송출 중… 과목명: ${roomId} · 모드: ${comm}`);
+    toast('학생에게 과목명를 공유하세요');
     
     // 채팅 초기화
     chatMessages.innerHTML = '';
@@ -3792,8 +3768,8 @@ async function startStudent(){
   try {
     roomId = (roomIdInput ? roomIdInput.value||'' : '').replace(/\s+/g,''); 
     if(!roomId){ 
-      toast('과목명칭을 입력해주세요');
-      throw new Error('과목명칭을 입력해주세요');
+      toast('과목명을 입력해주세요');
+      throw new Error('과목명을 입력해주세요');
     }
     viewerId = randomId(8);
     myUserId = viewerId;
@@ -4049,40 +4025,78 @@ async function startStudent(){
       
       if (isiOS) showIOSUnmuteOverlayIfNeeded(); else unmuteBtn.style.display='inline-block';
     }else{
-      // 미팅 모드: 교수의 카메라를 비디오 그리드에 표시
+      // 미팅 모드: 교수의 카메라/화면공유를 표시
       if (track.kind === 'video') {
-        const cameraLabel = track.label || `교수 카메라`;
-        const professorVideoId = 'professor-camera-' + track.id.substring(0, 8);
+        const trackLabel = (track.label || '').toLowerCase();
+        const isScreenTrack = trackLabel.includes('screen') || 
+                              trackLabel.includes('화면') ||
+                              trackLabel.includes('display') ||
+                              trackLabel.includes('monitor') ||
+                              trackLabel.includes('window') ||
+                              trackLabel.includes('desktop');
         
-        // 중복 체크
-        if (document.getElementById(`remote-video-${professorVideoId}`)) {
-          log(`[Student] 미팅 모드 - 중복 카메라 트랙 무시: ${cameraLabel}`);
-          return;
+        if (isScreenTrack) {
+          // 화면공유 트랙 - 전체화면으로 표시
+          log('[Student] 미팅 모드 - 화면공유 트랙 수신');
+          
+          if (fsVideo && fullscreenVideo) {
+            const fullscreenStream = new MediaStream([track]);
+            fsVideo.srcObject = fullscreenStream;
+            fullscreenVideo.classList.add('show');
+            if (fullscreenQuestionBtn) {
+              fullscreenQuestionBtn.style.display = 'block';
+            }
+            fsVideo.setAttribute('playsinline', '');
+            fsVideo.setAttribute('webkit-playsinline', '');
+            fsVideo.play().catch(e => {
+              console.warn('전체화면 비디오 재생 실패:', e);
+            });
+            log('[Student] 미팅 모드 - 화면공유 자동 전체화면 표시');
+            toast('화면공유가 시작되었습니다');
+          }
+          
+          // 트랙 종료 시 전체화면 닫기
+          track.onended = () => {
+            if (fullscreenVideo) {
+              fullscreenVideo.classList.remove('show');
+            }
+            log('[Student] 미팅 모드 - 화면공유 종료');
+            toast('화면공유가 종료되었습니다');
+          };
+        } else {
+          // 카메라 트랙 - 비디오 그리드에 표시
+          const cameraLabel = track.label || `교수 카메라`;
+          const professorVideoId = 'professor-camera-' + track.id.substring(0, 8);
+          
+          // 중복 체크
+          if (document.getElementById(`remote-video-${professorVideoId}`)) {
+            log(`[Student] 미팅 모드 - 중복 카메라 트랙 무시: ${cameraLabel}`);
+            return;
+          }
+          
+          broadcastAllCameras.set(track.id, { track, label: cameraLabel });
+          log(`[Student] 미팅 모드 - 교수 카메라 트랙 수신: label="${cameraLabel}"`);
+          
+          // 교수 카메라를 비디오 그리드에 추가
+          const video = createRemoteVideoElement(professorVideoId, '교수');
+          if (video) {
+            const cameraStream = new MediaStream([track]);
+            video.srcObject = cameraStream;
+            video.play().catch(e => {
+              console.warn('교수 카메라 재생 실패:', e);
+            });
+            meetingVideos.classList.remove('hidden');
+            log('[Student] 미팅 모드 - 교수 카메라를 비디오 그리드에 표시');
+          }
+          
+          // 트랙 종료 시 처리
+          track.onended = () => {
+            broadcastAllCameras.delete(track.id);
+            const videoWrapper = document.getElementById(`remote-video-${professorVideoId}`);
+            if (videoWrapper) videoWrapper.remove();
+            log(`[Student] 미팅 모드 - 교수 카메라 트랙 종료: ${cameraLabel}`);
+          };
         }
-        
-        broadcastAllCameras.set(track.id, { track, label: cameraLabel });
-        log(`[Student] 미팅 모드 - 교수 카메라 트랙 수신: label="${cameraLabel}"`);
-        
-        // 교수 카메라를 비디오 그리드에 추가
-        // createRemoteVideoElement는 내부에서 wrapper를 그리드에 추가하고 video 요소를 반환함
-        const video = createRemoteVideoElement(professorVideoId, '교수');
-        if (video) {
-          const cameraStream = new MediaStream([track]);
-          video.srcObject = cameraStream;
-          video.play().catch(e => {
-            console.warn('교수 카메라 재생 실패:', e);
-          });
-          meetingVideos.classList.remove('hidden');
-          log('[Student] 미팅 모드 - 교수 카메라를 비디오 그리드에 표시');
-        }
-        
-        // 트랙 종료 시 처리
-        track.onended = () => {
-          broadcastAllCameras.delete(track.id);
-          const videoWrapper = document.getElementById(`remote-video-${professorVideoId}`);
-          if (videoWrapper) videoWrapper.remove();
-          log(`[Student] 미팅 모드 - 교수 카메라 트랙 종료: ${cameraLabel}`);
-        };
       } else if (track.kind === 'audio') {
         // 오디오 트랙 처리
         audioMirror.srcObject = stream;
@@ -4372,7 +4386,7 @@ async function cleanup(){
   chatInput.value = '';
   myUserId = '';
   viewerId = '';  // 학생 ID 리셋
-  roomId = '';  // 과목명칭 리셋
+  roomId = '';  // 과목명 리셋
   if (infoEl) infoEl.textContent = '-';  // 연결 정보 초기화
   
   // 화면공유 정리
