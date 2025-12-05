@@ -555,90 +555,21 @@ async function startCameraPiP(cameraStreamToUse) {
   }
   
   try {
-    // 화면공유 중이면 고정 위치 오버레이 사용, 아니면 PiP 사용
+    // 화면공유 중이면 별도 창을 공유 화면의 우측 상단에 표시
     if (isScreenSharing) {
-      // 화면공유 중: 오른쪽 상단에 드래그 가능한 오버레이로 표시
-      let cameraOverlay = document.getElementById('professorCameraOverlay');
-      if (!cameraOverlay) {
-        cameraOverlay = document.createElement('div');
-        cameraOverlay.id = 'professorCameraOverlay';
-        cameraOverlay.style.cssText = 'position: fixed; top: 20px; right: 20px; width: 240px; height: 135px; z-index: 10000; background: #000; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.5); border: 2px solid rgba(106,166,255,0.8); cursor: move;';
-        document.body.appendChild(cameraOverlay);
-        
-        const overlayVideo = document.createElement('video');
-        overlayVideo.id = 'professorCameraOverlayVideo';
-        overlayVideo.autoplay = true;
-        overlayVideo.muted = true;
-        overlayVideo.playsInline = true;
-        overlayVideo.style.cssText = 'width: 100%; height: 100%; object-fit: cover; pointer-events: none;';
-        cameraOverlay.appendChild(overlayVideo);
-        
-        // 드래그 기능 추가
-        let isDragging = false;
-        let currentX = 0;
-        let currentY = 0;
-        let initialX = 0;
-        let initialY = 0;
-        
-        const startDrag = (e) => {
-          if (e.button !== 0 && e.type !== 'touchstart') return; // 마우스 왼쪽 버튼 또는 터치만
-          isDragging = true;
-          if (e.type === 'touchstart') {
-            initialX = e.touches[0].clientX - cameraOverlay.offsetLeft;
-            initialY = e.touches[0].clientY - cameraOverlay.offsetTop;
-          } else {
-            initialX = e.clientX - cameraOverlay.offsetLeft;
-            initialY = e.clientY - cameraOverlay.offsetTop;
-          }
-          cameraOverlay.style.cursor = 'grabbing';
-        };
-        
-        const drag = (e) => {
-          if (!isDragging) return;
-          e.preventDefault();
-          
-          if (e.type === 'touchmove') {
-            currentX = e.touches[0].clientX - initialX;
-            currentY = e.touches[0].clientY - initialY;
-          } else {
-            currentX = e.clientX - initialX;
-            currentY = e.clientY - initialY;
-          }
-          
-          // 화면 경계 체크
-          const maxX = window.innerWidth - cameraOverlay.offsetWidth;
-          const maxY = window.innerHeight - cameraOverlay.offsetHeight;
-          currentX = Math.max(0, Math.min(currentX, maxX));
-          currentY = Math.max(0, Math.min(currentY, maxY));
-          
-          cameraOverlay.style.left = currentX + 'px';
-          cameraOverlay.style.top = currentY + 'px';
-          cameraOverlay.style.right = 'auto';
-        };
-        
-        const stopDrag = () => {
-          isDragging = false;
-          cameraOverlay.style.cursor = 'move';
-        };
-        
-        cameraOverlay.addEventListener('mousedown', startDrag);
-        cameraOverlay.addEventListener('touchstart', startDrag, { passive: false });
-        document.addEventListener('mousemove', drag);
-        document.addEventListener('touchmove', drag, { passive: false });
-        document.addEventListener('mouseup', stopDrag);
-        document.addEventListener('touchend', stopDrag);
-      }
+      // 화면공유 중: 공유 화면의 우측 상단에 카메라 창 열기
+      const screenSettings = screenShareStream ? screenShareStream.getVideoTracks()[0]?.getSettings() : null;
+      const screenInfo = {
+        screenWidth: screenSettings?.width || window.screen.width,
+        screenHeight: screenSettings?.height || window.screen.height
+      };
       
-      const overlayVideo = document.getElementById('professorCameraOverlayVideo');
-      if (overlayVideo) {
-        overlayVideo.srcObject = cameraStreamToUse;
-        await overlayVideo.play();
-        cameraOverlay.style.display = 'block';
-        log('[Professor] 화면공유 중 카메라 오버레이 표시 (드래그 가능)');
-      }
+      // 별도 창으로 카메라 표시 (공유 화면 우측 상단에 배치)
+      await openProfessorCameraWindow(true, screenInfo);
+      log('[Professor] 화면공유 중 카메라 창 표시 (공유 화면 우측 상단)');
     } else {
       // 화면공유 중이 아닐 때: PiP 사용
-      // PiP용 비디오 엘리먼트 생성 (숨김)
+    // PiP용 비디오 엘리먼트 생성 (숨김)
       if (!professorCameraPiPVideo) {
         professorCameraPiPVideo = document.createElement('video');
         professorCameraPiPVideo.style.position = 'fixed';
@@ -649,14 +580,14 @@ async function startCameraPiP(cameraStreamToUse) {
         professorCameraPiPVideo.muted = true;
         professorCameraPiPVideo.playsInline = true;
         document.body.appendChild(professorCameraPiPVideo);
-      }
-      
-      // 스트림 설정
+    }
+    
+    // 스트림 설정
       professorCameraPiPVideo.srcObject = cameraStreamToUse;
       await professorCameraPiPVideo.play();
-      
-      // Picture-in-Picture 모드 진입
-      if (!document.pictureInPictureElement) {
+    
+    // Picture-in-Picture 모드 진입
+    if (!document.pictureInPictureElement) {
         const pipWindow = await professorCameraPiPVideo.requestPictureInPicture();
         log('[Professor] Picture-in-Picture 모드 시작');
       }
@@ -1775,16 +1706,14 @@ function openProfessorCameraWindow(cameraStream, isScreenShareMode = false, scre
         windowWidth = Math.floor(sharedScreenWidth / 6);
         windowHeight = Math.floor(sharedScreenHeight / 4);
         
-        // 공유 화면의 우측에 배치
-        // 공유 화면의 해상도를 기준으로 우측에 배치
+        // 공유 화면의 우측 상단에 배치
         const margin = 20;
         
-        // 공유 화면의 우측에 배치 (세로 중앙 정렬)
+        // 공유 화면의 우측 상단에 배치
         windowLeft = sharedScreenWidth - windowWidth - margin;
-        // 세로 중앙에 배치
-        windowTop = Math.floor((sharedScreenHeight - windowHeight) / 2);
+        windowTop = margin; // 상단에 배치
         
-        log(`[Professor] 화면공유 모드: 공유 화면 크기 ${sharedScreenWidth}x${sharedScreenHeight}, 창 크기 ${windowWidth}x${windowHeight}, 위치: ${windowLeft},${windowTop} (우측 중앙)`);
+        log(`[Professor] 화면공유 모드: 공유 화면 크기 ${sharedScreenWidth}x${sharedScreenHeight}, 창 크기 ${windowWidth}x${windowHeight}, 위치: ${windowLeft},${windowTop} (우측 상단)`);
       } else {
         // 일반 모드: 기존 로직 유지
         const primaryScreenWidth = window.screen.width;
@@ -2564,8 +2493,14 @@ async function stopScreenShare(){
 
 
 /* ---------------- 학생명단 관리 ---------------- */
+// 학생명단은 별도 경로(studentLists)에 저장하여 room 초기화와 분리
 async function saveStudentList() {
-  if (!roomId || role !== 'professor') return;
+  const targetRoomId = roomId || (roomIdInput ? roomIdInput.value.trim() : '');
+  if (!targetRoomId) {
+    toast('과목명칭을 먼저 입력해주세요');
+    return;
+  }
+  if (role !== 'professor') return;
   
   const studentListText = studentListInput ? studentListInput.value.trim() : '';
   const studentNames = studentListText.split('\n')
@@ -2573,17 +2508,21 @@ async function saveStudentList() {
     .filter(name => name.length > 0);
   
   try {
-    await db.ref(`rooms/${roomId}/studentList`).set({
+    // 별도 경로에 저장하여 room 초기화 시에도 유지됨
+    await db.ref(`studentLists/${targetRoomId}`).set({
       names: studentNames,
       timestamp: Date.now()
     });
+    
+    // localStorage에도 백업 저장 (오프라인 시 사용)
+    localStorage.setItem(`studentList_${targetRoomId}`, JSON.stringify(studentNames));
     
     if (studentListStatus) {
       studentListStatus.textContent = `명단 저장 완료 (${studentNames.length}명)`;
       studentListStatus.style.color = '#4cd97b';
     }
     toast(`학생명단 저장 완료 (${studentNames.length}명)`);
-    log(`[Professor] 학생명단 저장: ${studentNames.length}명`);
+    log(`[Professor] 학생명단 저장: ${studentNames.length}명 - 과목: ${targetRoomId}`);
   } catch(e) {
     console.error('학생명단 저장 실패:', e);
     if (studentListStatus) {
@@ -2594,47 +2533,89 @@ async function saveStudentList() {
   }
 }
 
-async function loadStudentList() {
-  if (!roomId || role !== 'professor') return;
+async function loadStudentList(targetRoomIdOverride) {
+  const targetRoomId = targetRoomIdOverride || roomId || (roomIdInput ? roomIdInput.value.trim() : '');
+  if (!targetRoomId) return;
   
   try {
-    const snapshot = await db.ref(`rooms/${roomId}/studentList`).once('value');
+    // 별도 경로에서 불러오기
+    const snapshot = await db.ref(`studentLists/${targetRoomId}`).once('value');
     const data = snapshot.val();
     
     if (data && data.names && Array.isArray(data.names)) {
-      if (studentListInput) {
+      if (studentListInput && role === 'professor') {
         studentListInput.value = data.names.join('\n');
       }
-      if (studentListStatus) {
+      if (studentListStatus && role === 'professor') {
         studentListStatus.textContent = `저장된 명단: ${data.names.length}명`;
         studentListStatus.style.color = 'var(--muted)';
       }
-      log(`[Professor] 학생명단 불러오기: ${data.names.length}명`);
+      log(`[StudentList] 학생명단 불러오기: ${data.names.length}명 - 과목: ${targetRoomId}`);
+      return data.names;
     } else {
-      if (studentListInput) {
+      // Firebase에 없으면 localStorage에서 시도
+      const localData = localStorage.getItem(`studentList_${targetRoomId}`);
+      if (localData) {
+        const names = JSON.parse(localData);
+        if (studentListInput && role === 'professor') {
+          studentListInput.value = names.join('\n');
+        }
+        if (studentListStatus && role === 'professor') {
+          studentListStatus.textContent = `저장된 명단 (로컬): ${names.length}명`;
+          studentListStatus.style.color = 'var(--muted)';
+        }
+        log(`[StudentList] 학생명단 로컬에서 불러오기: ${names.length}명 - 과목: ${targetRoomId}`);
+        return names;
+      }
+      
+      if (studentListInput && role === 'professor') {
         studentListInput.value = '';
       }
-      if (studentListStatus) {
+      if (studentListStatus && role === 'professor') {
         studentListStatus.textContent = '저장된 명단 없음';
         studentListStatus.style.color = 'var(--muted)';
       }
+      return [];
     }
   } catch(e) {
     console.error('학생명단 불러오기 실패:', e);
-    if (studentListStatus) {
+    // Firebase 실패 시 localStorage에서 시도
+    try {
+      const localData = localStorage.getItem(`studentList_${targetRoomId}`);
+      if (localData) {
+        const names = JSON.parse(localData);
+        if (studentListInput && role === 'professor') {
+          studentListInput.value = names.join('\n');
+        }
+        if (studentListStatus && role === 'professor') {
+          studentListStatus.textContent = `저장된 명단 (로컬): ${names.length}명`;
+          studentListStatus.style.color = '#ffcc00';
+        }
+        return names;
+      }
+    } catch(e2) {}
+    
+    if (studentListStatus && role === 'professor') {
       studentListStatus.textContent = '명단 불러오기 실패';
       studentListStatus.style.color = '#ff6a6a';
     }
+    return [];
   }
 }
 
 async function clearStudentList() {
-  if (!roomId || role !== 'professor') return;
+  const targetRoomId = roomId || (roomIdInput ? roomIdInput.value.trim() : '');
+  if (!targetRoomId) {
+    toast('과목명칭을 먼저 입력해주세요');
+    return;
+  }
+  if (role !== 'professor') return;
   
   if (!confirm('학생명단을 초기화하시겠습니까?')) return;
   
   try {
-    await db.ref(`rooms/${roomId}/studentList`).remove();
+    await db.ref(`studentLists/${targetRoomId}`).remove();
+    localStorage.removeItem(`studentList_${targetRoomId}`);
     
     if (studentListInput) {
       studentListInput.value = '';
@@ -2644,7 +2625,7 @@ async function clearStudentList() {
       studentListStatus.style.color = 'var(--muted)';
     }
     toast('학생명단 초기화 완료');
-    log('[Professor] 학생명단 초기화');
+    log(`[Professor] 학생명단 초기화 - 과목: ${targetRoomId}`);
   } catch(e) {
     console.error('학생명단 초기화 실패:', e);
     toast('학생명단 초기화 실패');
@@ -2652,13 +2633,23 @@ async function clearStudentList() {
 }
 
 async function checkStudentInList(studentName) {
-  if (!roomId) return true; // 명단이 없으면 모두 허용
+  const targetRoomId = roomId || (roomIdInput ? roomIdInput.value.trim() : '');
+  if (!targetRoomId) return true; // 과목명칭이 없으면 모두 허용
   
   try {
-    const snapshot = await db.ref(`rooms/${roomId}/studentList`).once('value');
+    // 별도 경로에서 확인
+    const snapshot = await db.ref(`studentLists/${targetRoomId}`).once('value');
     const data = snapshot.val();
     
     if (!data || !data.names || !Array.isArray(data.names) || data.names.length === 0) {
+      // Firebase에 없으면 localStorage에서 확인
+      const localData = localStorage.getItem(`studentList_${targetRoomId}`);
+      if (localData) {
+        const names = JSON.parse(localData);
+        if (names.length === 0) return true; // 명단이 비어있으면 모두 허용
+        const normalizedName = studentName.trim().toLowerCase();
+        return names.some(name => name.trim().toLowerCase() === normalizedName);
+      }
       return true; // 명단이 없으면 모두 허용
     }
     
@@ -2667,7 +2658,52 @@ async function checkStudentInList(studentName) {
     return data.names.some(name => name.trim().toLowerCase() === normalizedName);
   } catch(e) {
     console.error('학생명단 확인 실패:', e);
+    // Firebase 실패 시 localStorage에서 확인
+    try {
+      const localData = localStorage.getItem(`studentList_${targetRoomId}`);
+      if (localData) {
+        const names = JSON.parse(localData);
+        if (names.length === 0) return true;
+        const normalizedName = studentName.trim().toLowerCase();
+        return names.some(name => name.trim().toLowerCase() === normalizedName);
+      }
+    } catch(e2) {}
     return true; // 확인 실패 시 허용 (안전장치)
+  }
+}
+
+// 해당 과목에 학생명단이 존재하는지 확인 (빈 명단이 아닌, 실제로 명단이 있는지)
+async function checkIfStudentListExists(targetRoomId) {
+  if (!targetRoomId) return false;
+  
+  try {
+    // Firebase에서 확인
+    const snapshot = await db.ref(`studentLists/${targetRoomId}`).once('value');
+    const data = snapshot.val();
+    
+    if (data && data.names && Array.isArray(data.names) && data.names.length > 0) {
+      return true;
+    }
+    
+    // Firebase에 없으면 localStorage에서 확인
+    const localData = localStorage.getItem(`studentList_${targetRoomId}`);
+    if (localData) {
+      const names = JSON.parse(localData);
+      return names.length > 0;
+    }
+    
+    return false;
+  } catch(e) {
+    console.error('학생명단 존재 확인 실패:', e);
+    // Firebase 실패 시 localStorage에서 확인
+    try {
+      const localData = localStorage.getItem(`studentList_${targetRoomId}`);
+      if (localData) {
+        const names = JSON.parse(localData);
+        return names.length > 0;
+      }
+    } catch(e2) {}
+    return false;
   }
 }
 
@@ -2908,6 +2944,40 @@ if (saveStudentListBtn) {
 if (clearStudentListBtn) {
   clearStudentListBtn.addEventListener('click', clearStudentList);
 }
+
+// 과목명칭 입력 시 자동으로 저장된 학생명단 불러오기
+let roomIdInputTimeout = null;
+if (roomIdInput) {
+  roomIdInput.addEventListener('input', () => {
+    // 디바운스: 입력 중에는 너무 자주 호출되지 않도록
+    if (roomIdInputTimeout) clearTimeout(roomIdInputTimeout);
+    roomIdInputTimeout = setTimeout(async () => {
+      const inputRoomId = roomIdInput.value.trim();
+      if (inputRoomId && role === 'professor') {
+        log(`[StudentList] 과목명칭 입력됨: ${inputRoomId} - 저장된 학생명단 확인 중...`);
+        await loadStudentList(inputRoomId);
+      }
+    }, 500); // 500ms 디바운스
+  });
+  
+  // 포커스를 잃을 때도 로드 시도
+  roomIdInput.addEventListener('blur', async () => {
+    const inputRoomId = roomIdInput.value.trim();
+    if (inputRoomId && role === 'professor') {
+      await loadStudentList(inputRoomId);
+    }
+  });
+}
+
+// 페이지 로드 시 저장된 과목명칭이 있으면 학생명단도 불러오기
+document.addEventListener('DOMContentLoaded', async () => {
+  // 약간의 지연 후 실행 (Firebase 초기화 대기)
+  setTimeout(async () => {
+    if (roomIdInput && roomIdInput.value.trim() && role === 'professor') {
+      await loadStudentList(roomIdInput.value.trim());
+    }
+  }, 1000);
+});
 
 /* ---------------- Signaling: Professor / Student ---------------- */
 async function addPending(vid, data){
@@ -4015,18 +4085,18 @@ async function startStudent(){
         });
         
         if (!isDuplicate) {
-          broadcastAllCameras.set(track.id, { track, label: cameraLabel });
+        broadcastAllCameras.set(track.id, { track, label: cameraLabel });
           log(`[Student] 미팅 모드 - 교수 카메라 트랙 수신: label="${cameraLabel}" (총 ${broadcastAllCameras.size}개)`);
-          
-          // 모든 카메라를 그리드로 표시
+        
+        // 모든 카메라를 그리드로 표시
           displayStudentAllCameras();
-          
-          // 트랙 종료 시 처리
-          track.onended = () => {
-            broadcastAllCameras.delete(track.id);
+        
+        // 트랙 종료 시 처리
+        track.onended = () => {
+          broadcastAllCameras.delete(track.id);
             displayStudentAllCameras(); // 그리드 업데이트
             log(`[Student] 미팅 모드 - 교수 카메라 트랙 종료: ${cameraLabel}`);
-          };
+        };
         }
       } else if (track.kind === 'audio') {
         // 오디오 트랙 처리
@@ -4048,9 +4118,34 @@ async function startStudent(){
   preferH264(pc);
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
+  
   // 학생명단 확인 (입실 전)
   const studentName = userNameInput ? userNameInput.value.trim() : '';
-  if (studentName) {
+  
+  // 먼저 해당 과목에 학생명단이 있는지 확인
+  const hasStudentList = await checkIfStudentListExists(roomId);
+  
+  if (hasStudentList) {
+    // 학생명단이 있는 과목의 경우: 이름 필수 입력 및 명단 확인
+    if (!studentName) {
+      toast('이름을 입력해주세요. 학생명단에 등록된 이름으로 입실해야 합니다.');
+      log(`[Student] 학생명단이 있는 과목 - 이름 미입력으로 입실 거절`);
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+      isRunning = false;
+      if (localStream) {
+        localStream.getTracks().forEach(t => t.stop());
+        localStream = null;
+      }
+      if (pc) {
+        try {
+          pc.close();
+        } catch(e2) {}
+        pc = null;
+      }
+      throw new Error('이름을 입력해주세요');
+    }
+    
     const isInList = await checkStudentInList(studentName);
     if (!isInList) {
       toast('학생명단에 없는 학생입니다. 입실할 수 없습니다.');
@@ -4070,6 +4165,7 @@ async function startStudent(){
       }
       throw new Error('학생명단에 없는 학생입니다');
     }
+    log(`[Student] 학생명단 확인 완료: ${studentName}`);
   }
   
   const offerRef = db.ref(`rooms/${roomId}/offers/${viewerId}`);
@@ -4362,4 +4458,3 @@ window.addEventListener('error', e=> log('[Error] ' + e.message));
 </script>
 </body>
 </html>
-</html>승인
