@@ -594,50 +594,47 @@ async function startCameraPiP(cameraStreamToUse) {
   
   if (!cameraStreamToUse) {
     console.warn('[Professor] 카메라 스트림 없음', { professorCameraStream, localStream });
+    toast('카메라 스트림이 없습니다');
     return;
   }
   
   try {
-    // 화면공유 중이면 별도 창을 공유 화면의 중앙에 표시
-    if (isScreenSharing) {
-      // 화면공유 중: 공유 화면의 중앙에 카메라 창 열기
-      const screenSettings = screenShareStream ? screenShareStream.getVideoTracks()[0]?.getSettings() : null;
-      const screenInfo = {
-        screenWidth: screenSettings?.width || window.screen.width,
-        screenHeight: screenSettings?.height || window.screen.height
-      };
-      
-      // 별도 창으로 카메라 표시 (공유 화면 중앙에 배치)
-      openProfessorCameraWindow(cameraStreamToUse, true, screenInfo);
-      log('[Professor] 화면공유 중 카메라 창 표시 (공유 화면 중앙)');
-    } else {
-      // 화면공유 중이 아닐 때: PiP 사용
     // PiP용 비디오 엘리먼트 생성 (숨김)
-      if (!professorCameraPiPVideo) {
-        professorCameraPiPVideo = document.createElement('video');
-        professorCameraPiPVideo.style.position = 'fixed';
-        professorCameraPiPVideo.style.top = '-9999px';
-        professorCameraPiPVideo.style.width = '240px';
-        professorCameraPiPVideo.style.height = '135px';
-        professorCameraPiPVideo.autoplay = true;
-        professorCameraPiPVideo.muted = true;
-        professorCameraPiPVideo.playsInline = true;
-        document.body.appendChild(professorCameraPiPVideo);
+    if (!professorCameraPiPVideo) {
+      professorCameraPiPVideo = document.createElement('video');
+      professorCameraPiPVideo.style.position = 'fixed';
+      professorCameraPiPVideo.style.top = '-9999px';
+      professorCameraPiPVideo.style.left = '-9999px';
+      professorCameraPiPVideo.style.width = '320px';
+      professorCameraPiPVideo.style.height = '240px';
+      professorCameraPiPVideo.autoplay = true;
+      professorCameraPiPVideo.muted = true;
+      professorCameraPiPVideo.playsInline = true;
+      professorCameraPiPVideo.setAttribute('playsinline', '');
+      professorCameraPiPVideo.setAttribute('webkit-playsinline', '');
+      document.body.appendChild(professorCameraPiPVideo);
+      log('[Professor] PiP용 비디오 엘리먼트 생성');
     }
     
     // 스트림 설정
-      professorCameraPiPVideo.srcObject = cameraStreamToUse;
-      await professorCameraPiPVideo.play();
+    professorCameraPiPVideo.srcObject = cameraStreamToUse;
+    await professorCameraPiPVideo.play();
+    log('[Professor] PiP 비디오 재생 시작');
     
     // Picture-in-Picture 모드 진입
     if (!document.pictureInPictureElement) {
-        const pipWindow = await professorCameraPiPVideo.requestPictureInPicture();
+      if (document.pictureInPictureEnabled && professorCameraPiPVideo.requestPictureInPicture) {
+        await professorCameraPiPVideo.requestPictureInPicture();
         log('[Professor] Picture-in-Picture 모드 시작');
+      } else {
+        toast('이 브라우저는 PiP를 지원하지 않습니다');
+        log('[Professor] PiP 미지원 브라우저');
       }
     }
   } catch(e) {
-    console.error('카메라 표시 실패:', e);
-    log('[Professor] 카메라 표시 실패: ' + e.message);
+    console.error('카메라 PiP 실패:', e);
+    log('[Professor] 카메라 PiP 실패: ' + e.message);
+    toast('카메라 PiP 실패: ' + e.message);
   }
 }
 
@@ -4067,17 +4064,14 @@ async function startStudent(){
         log(`[Student] 미팅 모드 - 교수 카메라 트랙 수신: label="${cameraLabel}"`);
         
         // 교수 카메라를 비디오 그리드에 추가
-        const videoEl = createRemoteVideoElement(professorVideoId, '교수');
-        if (remoteVideosGrid && videoEl) {
-          remoteVideosGrid.appendChild(videoEl);
-          const video = videoEl.querySelector('video');
-          if (video) {
-            const cameraStream = new MediaStream([track]);
-            video.srcObject = cameraStream;
-            video.play().catch(e => {
-              console.warn('교수 카메라 재생 실패:', e);
-            });
-          }
+        // createRemoteVideoElement는 내부에서 wrapper를 그리드에 추가하고 video 요소를 반환함
+        const video = createRemoteVideoElement(professorVideoId, '교수');
+        if (video) {
+          const cameraStream = new MediaStream([track]);
+          video.srcObject = cameraStream;
+          video.play().catch(e => {
+            console.warn('교수 카메라 재생 실패:', e);
+          });
           meetingVideos.classList.remove('hidden');
           log('[Student] 미팅 모드 - 교수 카메라를 비디오 그리드에 표시');
         }
