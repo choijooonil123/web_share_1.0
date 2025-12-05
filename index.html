@@ -1239,9 +1239,17 @@ async function displayAllCameras(){
     const cameras = await enumerateAllCameras();
     
     // DroidCam 중복 제거: IP 카메라로 추가된 DroidCam은 일반 카메라 목록에서 제외
+    // Prezi Camera 제거
     const filteredCameras = cameras.filter(camera => {
       const label = (camera.label || '').toLowerCase();
       const isDroidCam = label.includes('droidcam');
+      const isPrezi = label.includes('prezi');
+      
+      // Prezi Camera 제외
+      if (isPrezi) {
+        log(`[Camera] Prezi Camera 제거: ${camera.label}`);
+        return false;
+      }
       
       if (isDroidCam && ipCameraUrls.size > 0) {
         // DroidCam이고 IP 카메라가 추가된 경우, IP 카메라로 추가된 것으로 간주하여 제외
