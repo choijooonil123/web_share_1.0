@@ -108,12 +108,17 @@
           <input id="userName" type="text" placeholder="이름 입력" style="width:120px;padding:6px 8px;font-size:12px" />
         </div>
         <div>
-          <label style="font-size:12px;margin:0">강의실 코드</label>
-          <input id="roomId" type="text" placeholder="예: rm-k3G7a9fQ2" style="width:150px;padding:6px 8px;font-size:12px" />
+          <label style="font-size:12px;margin:0">과목명칭</label>
+          <input id="roomId" type="text" placeholder="과목명을 입력하세요" style="width:150px;padding:6px 8px;font-size:12px" />
         </div>
       </div>
       <button class="primary" id="startBtn" style="padding:8px 16px">입실</button>
       <button class="danger" id="stopBtn" disabled style="padding:8px 16px">퇴실</button>
+      <!-- 교수 전용 버튼 -->
+      <button class="primary" id="classStartBtn" style="padding:8px 16px;display:none">수업시작</button>
+      <button class="danger" id="classEndBtn" style="padding:8px 16px;display:none">수업종료</button>
+      <!-- 출석확인 버튼 -->
+      <button id="attendanceCheckBtn" style="padding:8px 16px;display:none;background:#4cd97b">출석확인</button>
     </div>
   </div>
   <div id="info" class="hint" style="font-size:11px; display:none">-</div>
@@ -165,6 +170,16 @@
       <h3>승인 대기 목록 (교수 전용)</h3>
       <button class="modal-close" id="pendingModalClose">×</button>
     </div>
+    <!-- 학생명단 입력 영역 (교수 전용) -->
+    <div id="studentListSection" style="margin-bottom:16px;padding:12px;background:rgba(13,20,51,0.6);border-radius:8px;border:1px solid #2a3a77;display:none">
+      <label style="display:block;margin-bottom:8px;font-size:14px;color:#eaf0ff;font-weight:bold">학생명단 (줄바꿈으로 구분)</label>
+      <textarea id="studentListInput" placeholder="학생1&#10;학생2&#10;학생3" style="width:100%;min-height:100px;padding:8px;font-size:12px;background:rgba(16,24,58,0.8);border:1px solid #2a3a77;border-radius:6px;color:#eaf0ff;resize:vertical;font-family:inherit"></textarea>
+      <div style="margin-top:8px;display:flex;gap:8px">
+        <button id="saveStudentListBtn" class="primary" style="padding:6px 12px;font-size:12px">명단 저장</button>
+        <button id="clearStudentListBtn" class="danger" style="padding:6px 12px;font-size:12px">명단 초기화</button>
+      </div>
+      <div id="studentListStatus" style="margin-top:8px;font-size:11px;color:var(--muted)"></div>
+    </div>
     <ul id="pending"></ul>
   </div>
 </div>
@@ -198,6 +213,23 @@
       <button class="modal-close" id="logModalClose">×</button>
     </div>
     <pre id="log" class="hint" style="white-space:pre-wrap;max-height:60vh;overflow:auto;margin:0"></pre>
+  </div>
+</div>
+
+<!-- 출석확인 모달 -->
+<div id="attendanceModal" class="modal">
+  <div class="modal-content" style="max-width:800px">
+    <div class="modal-header">
+      <h3>출석 현황</h3>
+      <button class="modal-close" id="attendanceModalClose">×</button>
+    </div>
+    <div style="margin-bottom:16px">
+      <label style="display:block;margin-bottom:8px">날짜 선택</label>
+      <input type="date" id="attendanceDateInput" style="width:200px;padding:8px;border-radius:8px;border:1px solid #2a3a77;background:#0d1433;color:#eaf0ff" />
+    </div>
+    <div id="attendanceList" style="max-height:60vh;overflow-y:auto">
+      <p class="hint">날짜를 선택하세요</p>
+    </div>
   </div>
 </div>
 
@@ -274,6 +306,18 @@ const questionBtnWrapper = document.getElementById('questionBtnWrapper');
 const questionBtn = document.getElementById('questionBtn');
 const pendingModal = document.getElementById('pendingModal');
 const pendingModalClose = document.getElementById('pendingModalClose');
+const studentListSection = document.getElementById('studentListSection');
+const studentListInput = document.getElementById('studentListInput');
+const saveStudentListBtn = document.getElementById('saveStudentListBtn');
+const clearStudentListBtn = document.getElementById('clearStudentListBtn');
+const classStartBtn = document.getElementById('classStartBtn');
+const classEndBtn = document.getElementById('classEndBtn');
+const attendanceCheckBtn = document.getElementById('attendanceCheckBtn');
+const attendanceModal = document.getElementById('attendanceModal');
+const attendanceModalClose = document.getElementById('attendanceModalClose');
+const attendanceDateInput = document.getElementById('attendanceDateInput');
+const attendanceList = document.getElementById('attendanceList');
+const studentListStatus = document.getElementById('studentListStatus');
 const chatModal = document.getElementById('chatModal');
 const chatModalClose = document.getElementById('chatModalClose');
 const logModal = document.getElementById('logModal');
@@ -284,6 +328,12 @@ const logBtn = document.getElementById('logBtn');
 function showPendingModal() {
   if (pendingModal && role === 'professor') {
     pendingModal.classList.add('show');
+    // 학생명단 섹션 표시
+    if (studentListSection) {
+      studentListSection.style.display = 'block';
+    }
+    // 저장된 학생명단 불러오기
+    loadStudentList();
   }
 }
 function hidePendingModal() {
@@ -341,6 +391,10 @@ let facingMode = 'user';           // 카메라 전/후면
 let roomId = '';
 let viewerId = '';
 let isRunning = false;
+let classStartTime = null;              // 수업 시작 시간
+let classEndTime = null;                // 수업 종료 시간
+let studentEntryTime = null;            // 학생 입실 시간
+let studentExitTime = null;             // 학생 퇴실 시간
 let pc = null;                      // 학생용 단일 연결
 let peerConnections = new Map();    // 교수용: 학생 ID -> PeerConnection
 let remoteVideos = new Map();       // 학생 ID -> video 엘리먼트
@@ -357,6 +411,8 @@ let studentQuestionPiPVideo = null;  // 학생 질문 PiP용 비디오 엘리먼
 let currentQuestionStudentId = null;  // 현재 질문 중인 학생 ID
 let professorPiPWasActiveBeforeQuestion = false;  // 질문 시작 전 교수 PiP 활성화 여부
 let isQuestionRequestActive = false;  // 질문 요청 활성화 여부 (토글용)
+let wasFullscreenBeforeQuestion = false;  // 질문 시작 전 전체화면 상태
+let questionFullscreenStudentId = null;  // 전체화면으로 표시 중인 질문 학생 ID
 let allCameraStreams = new Map();     // 모든 카메라 스트림 저장 (deviceId -> stream)
 let allCameraVideos = new Map();      // 모든 카메라 비디오 엘리먼트 저장 (deviceId -> video element)
 let ipCameraUrls = new Set();         // IP 카메라 URL 저장
@@ -368,6 +424,7 @@ let broadcastAllCameras = new Map();  // 학생이 수신한 모든 교수 카�
 let firebaseListeners = {           // Firebase 리스너 정리를 위한 참조
   offers: null,
   answers: null,
+  questionActive: null,
   candidates: {},
   chat: null,
   questionRequest: null  // 질문 요청 상태 리스너
@@ -393,7 +450,7 @@ function logStatus(msg){ if (statusEl) statusEl.textContent = msg; }
 function log(msg){ console.log(msg); if (logEl) { logEl.textContent += msg + '\n'; logEl.scrollTop = logEl.scrollHeight; } }
 function toast(msg){ toastEl.textContent = msg; toastEl.style.display='block'; setTimeout(()=>toastEl.style.display='none', 1800); }
 function randomId(len=10){ const c='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'; let s=''; for(let i=0;i<len;i++) s+=c[Math.floor(Math.random()*c.length)]; return s; }
-function generateRoomId(){ const d=new Date(); const year=d.getFullYear(); const month=String(d.getMonth()+1).padStart(2,'0'); const day=String(d.getDate()).padStart(2,'0'); return `RM-${year}${month}${day}`; }
+// generateRoomId 함수 제거 - 과목명칭은 수동 입력만 가능
 const isiOS = (() => { const ua = navigator.userAgent||''; const iOS=/iPad|iPhone|iPod/.test(ua); const iPadOS13Plus=navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1; return iOS||iPadOS13Plus; })();
 
 /* ---------------- UI bindings ---------------- */
@@ -2451,8 +2508,354 @@ async function stopScreenShare(){
 }
 
 
+/* ---------------- 학생명단 관리 ---------------- */
+async function saveStudentList() {
+  if (!roomId || role !== 'professor') return;
+  
+  const studentListText = studentListInput ? studentListInput.value.trim() : '';
+  const studentNames = studentListText.split('\n')
+    .map(name => name.trim())
+    .filter(name => name.length > 0);
+  
+  try {
+    await db.ref(`rooms/${roomId}/studentList`).set({
+      names: studentNames,
+      timestamp: Date.now()
+    });
+    
+    if (studentListStatus) {
+      studentListStatus.textContent = `명단 저장 완료 (${studentNames.length}명)`;
+      studentListStatus.style.color = '#4cd97b';
+    }
+    toast(`학생명단 저장 완료 (${studentNames.length}명)`);
+    log(`[Professor] 학생명단 저장: ${studentNames.length}명`);
+  } catch(e) {
+    console.error('학생명단 저장 실패:', e);
+    if (studentListStatus) {
+      studentListStatus.textContent = '명단 저장 실패';
+      studentListStatus.style.color = '#ff6a6a';
+    }
+    toast('학생명단 저장 실패');
+  }
+}
+
+async function loadStudentList() {
+  if (!roomId || role !== 'professor') return;
+  
+  try {
+    const snapshot = await db.ref(`rooms/${roomId}/studentList`).once('value');
+    const data = snapshot.val();
+    
+    if (data && data.names && Array.isArray(data.names)) {
+      if (studentListInput) {
+        studentListInput.value = data.names.join('\n');
+      }
+      if (studentListStatus) {
+        studentListStatus.textContent = `저장된 명단: ${data.names.length}명`;
+        studentListStatus.style.color = 'var(--muted)';
+      }
+      log(`[Professor] 학생명단 불러오기: ${data.names.length}명`);
+    } else {
+      if (studentListInput) {
+        studentListInput.value = '';
+      }
+      if (studentListStatus) {
+        studentListStatus.textContent = '저장된 명단 없음';
+        studentListStatus.style.color = 'var(--muted)';
+      }
+    }
+  } catch(e) {
+    console.error('학생명단 불러오기 실패:', e);
+    if (studentListStatus) {
+      studentListStatus.textContent = '명단 불러오기 실패';
+      studentListStatus.style.color = '#ff6a6a';
+    }
+  }
+}
+
+async function clearStudentList() {
+  if (!roomId || role !== 'professor') return;
+  
+  if (!confirm('학생명단을 초기화하시겠습니까?')) return;
+  
+  try {
+    await db.ref(`rooms/${roomId}/studentList`).remove();
+    
+    if (studentListInput) {
+      studentListInput.value = '';
+    }
+    if (studentListStatus) {
+      studentListStatus.textContent = '명단 초기화 완료';
+      studentListStatus.style.color = 'var(--muted)';
+    }
+    toast('학생명단 초기화 완료');
+    log('[Professor] 학생명단 초기화');
+  } catch(e) {
+    console.error('학생명단 초기화 실패:', e);
+    toast('학생명단 초기화 실패');
+  }
+}
+
+async function checkStudentInList(studentName) {
+  if (!roomId) return true; // 명단이 없으면 모두 허용
+  
+  try {
+    const snapshot = await db.ref(`rooms/${roomId}/studentList`).once('value');
+    const data = snapshot.val();
+    
+    if (!data || !data.names || !Array.isArray(data.names) || data.names.length === 0) {
+      return true; // 명단이 없으면 모두 허용
+    }
+    
+    // 학생 이름이 명단에 있는지 확인 (대소문자 무시)
+    const normalizedName = studentName.trim().toLowerCase();
+    return data.names.some(name => name.trim().toLowerCase() === normalizedName);
+  } catch(e) {
+    console.error('학생명단 확인 실패:', e);
+    return true; // 확인 실패 시 허용 (안전장치)
+  }
+}
+
+/* ---------------- 출석 관리 ---------------- */
+async function startClass() {
+  if (!roomId || role !== 'professor') return;
+  
+  classStartTime = Date.now();
+  classEndTime = null;
+  
+  try {
+    await db.ref(`rooms/${roomId}/classStatus`).set({
+      startTime: classStartTime,
+      endTime: null,
+      isActive: true
+    });
+    
+    toast('수업이 시작되었습니다');
+    log(`[Professor] 수업 시작: ${new Date(classStartTime).toLocaleString()}`);
+    
+    if (classStartBtn) classStartBtn.disabled = true;
+    if (classEndBtn) classEndBtn.disabled = false;
+  } catch(e) {
+    console.error('수업 시작 실패:', e);
+    toast('수업 시작 실패');
+  }
+}
+
+async function endClass() {
+  if (!roomId || role !== 'professor') return;
+  
+  if (!confirm('수업을 종료하시겠습니까? 출석 인정이 완료됩니다.')) return;
+  
+  classEndTime = Date.now();
+  
+  try {
+    await db.ref(`rooms/${roomId}/classStatus`).set({
+      startTime: classStartTime,
+      endTime: classEndTime,
+      isActive: false
+    });
+    
+    // 출석 인정 처리
+    await processAttendance();
+    
+    toast('수업이 종료되었습니다. 출석 인정이 완료되었습니다.');
+    log(`[Professor] 수업 종료: ${new Date(classEndTime).toLocaleString()}`);
+    
+    if (classStartBtn) classStartBtn.disabled = false;
+    if (classEndBtn) classEndBtn.disabled = true;
+  } catch(e) {
+    console.error('수업 종료 실패:', e);
+    toast('수업 종료 실패');
+  }
+}
+
+async function processAttendance() {
+  if (!roomId || !classStartTime || !classEndTime) return;
+  
+  try {
+    // 모든 학생의 입실 기록 가져오기
+    const attendanceRef = db.ref(`rooms/${roomId}/attendance`);
+    const snapshot = await attendanceRef.once('value');
+    const attendanceData = snapshot.val() || {};
+    
+    const today = new Date().toISOString().split('T')[0];
+    
+    for (const studentId in attendanceData) {
+      const studentData = attendanceData[studentId];
+      if (!studentData[today]) continue;
+      
+      const entryTime = studentData[today].entryTime;
+      const exitTime = studentData[today].exitTime || Date.now();
+      
+      // 수업 시작 전에 입실하고 수업 종료 전에 퇴실하지 않은 경우 출석 인정
+      if (entryTime && entryTime <= classEndTime && (!exitTime || exitTime >= classStartTime)) {
+        await db.ref(`rooms/${roomId}/attendance/${studentId}/${today}`).update({
+          isAttended: true,
+          classStartTime: classStartTime,
+          classEndTime: classEndTime
+        });
+      }
+    }
+    
+    log('[Professor] 출석 인정 처리 완료');
+  } catch(e) {
+    console.error('출석 인정 처리 실패:', e);
+  }
+}
+
+async function recordStudentEntry(studentName) {
+  if (!roomId || !studentName) return;
+  
+  const today = new Date().toISOString().split('T')[0];
+  const entryTime = Date.now();
+  studentEntryTime = entryTime;
+  
+  try {
+    await db.ref(`rooms/${roomId}/attendance/${myUserId}/${today}`).set({
+      studentName: studentName,
+      entryTime: entryTime,
+      exitTime: null,
+      isAttended: false
+    });
+    
+    log(`[Student] 입실 기록: ${new Date(entryTime).toLocaleString()}`);
+  } catch(e) {
+    console.error('입실 기록 실패:', e);
+  }
+}
+
+async function recordStudentExit() {
+  if (!roomId || !studentEntryTime) return;
+  
+  const today = new Date().toISOString().split('T')[0];
+  const exitTime = Date.now();
+  studentExitTime = exitTime;
+  
+  try {
+    await db.ref(`rooms/${roomId}/attendance/${myUserId}/${today}`).update({
+      exitTime: exitTime
+    });
+    
+    log(`[Student] 퇴실 기록: ${new Date(exitTime).toLocaleString()}`);
+  } catch(e) {
+    console.error('퇴실 기록 실패:', e);
+  }
+}
+
+function showAttendanceModal() {
+  if (attendanceModal) {
+    attendanceModal.classList.add('show');
+    // 오늘 날짜로 설정
+    if (attendanceDateInput) {
+      attendanceDateInput.value = new Date().toISOString().split('T')[0];
+      loadAttendanceData();
+    }
+  }
+}
+
+function hideAttendanceModal() {
+  if (attendanceModal) {
+    attendanceModal.classList.remove('show');
+  }
+}
+
+async function loadAttendanceData() {
+  if (!roomId || !attendanceDateInput || !attendanceList) return;
+  
+  const selectedDate = attendanceDateInput.value;
+  if (!selectedDate) {
+    attendanceList.innerHTML = '<p class="hint">날짜를 선택하세요</p>';
+    return;
+  }
+  
+  try {
+    const attendanceRef = db.ref(`rooms/${roomId}/attendance`);
+    const snapshot = await attendanceRef.once('value');
+    const attendanceData = snapshot.val() || {};
+    
+    let html = '<table style="width:100%;border-collapse:collapse;font-size:13px">';
+    html += '<thead><tr style="background:#1b285c;border-bottom:2px solid #2a3a77">';
+    html += '<th style="padding:10px;text-align:left">학생명</th>';
+    html += '<th style="padding:10px;text-align:left">입실시간</th>';
+    html += '<th style="padding:10px;text-align:left">퇴실시간</th>';
+    html += '<th style="padding:10px;text-align:center">출석인정</th>';
+    html += '</tr></thead><tbody>';
+    
+    const students = [];
+    for (const studentId in attendanceData) {
+      const studentData = attendanceData[studentId];
+      if (studentData[selectedDate]) {
+        students.push({
+          id: studentId,
+          name: studentData[selectedDate].studentName || studentId.substring(0, 6),
+          entryTime: studentData[selectedDate].entryTime,
+          exitTime: studentData[selectedDate].exitTime,
+          isAttended: studentData[selectedDate].isAttended || false
+        });
+      }
+    }
+    
+    // 입실시간 순으로 정렬
+    students.sort((a, b) => (a.entryTime || 0) - (b.entryTime || 0));
+    
+    if (students.length === 0) {
+      html += '<tr><td colspan="4" style="padding:20px;text-align:center;color:var(--muted)">해당 날짜에 입실한 학생이 없습니다</td></tr>';
+    } else {
+      students.forEach(student => {
+        const entryTimeStr = student.entryTime ? new Date(student.entryTime).toLocaleTimeString('ko-KR') : '-';
+        const exitTimeStr = student.exitTime ? new Date(student.exitTime).toLocaleTimeString('ko-KR') : '-';
+        const attendedStatus = student.isAttended ? '✅ 인정' : '❌ 미인정';
+        const attendedColor = student.isAttended ? '#4cd97b' : '#ff6a6a';
+        
+        html += '<tr style="border-bottom:1px solid #2a3a77">';
+        html += `<td style="padding:10px">${student.name}</td>`;
+        html += `<td style="padding:10px">${entryTimeStr}</td>`;
+        html += `<td style="padding:10px">${exitTimeStr}</td>`;
+        html += `<td style="padding:10px;text-align:center;color:${attendedColor};font-weight:bold">${attendedStatus}</td>`;
+        html += '</tr>';
+      });
+    }
+    
+    html += '</tbody></table>';
+    attendanceList.innerHTML = html;
+  } catch(e) {
+    console.error('출석 데이터 불러오기 실패:', e);
+    attendanceList.innerHTML = '<p style="color:#ff6a6a">출석 데이터를 불러오는 중 오류가 발생했습니다</p>';
+  }
+}
+
+// 출석 관리 버튼 이벤트
+if (classStartBtn) {
+  classStartBtn.addEventListener('click', startClass);
+}
+if (classEndBtn) {
+  classEndBtn.addEventListener('click', endClass);
+}
+if (attendanceCheckBtn) {
+  attendanceCheckBtn.addEventListener('click', showAttendanceModal);
+}
+if (attendanceModalClose) {
+  attendanceModalClose.addEventListener('click', hideAttendanceModal);
+}
+if (attendanceDateInput) {
+  attendanceDateInput.addEventListener('change', loadAttendanceData);
+}
+if (attendanceModal) {
+  attendanceModal.addEventListener('click', (e) => {
+    if (e.target === attendanceModal) hideAttendanceModal();
+  });
+}
+
+// 학생명단 관리 버튼 이벤트
+if (saveStudentListBtn) {
+  saveStudentListBtn.addEventListener('click', saveStudentList);
+}
+if (clearStudentListBtn) {
+  clearStudentListBtn.addEventListener('click', clearStudentList);
+}
+
 /* ---------------- Signaling: Professor / Student ---------------- */
-function addPending(vid, data){
+async function addPending(vid, data){
   // 이미 pending 목록에 있거나 이미 연결된 학생는 무시
   if (document.getElementById(`pending-${vid}`)) {
     log(`[Professor] ${vid}는 이미 승인 대기 중입니다`);
@@ -2463,11 +2866,28 @@ function addPending(vid, data){
     return;
   }
   
+  // 학생명단 확인 (userName 필드 사용, 없으면 vid 사용)
+  const studentName = data.userName || vid.substring(0,6);
+  const isInList = await checkStudentInList(studentName);
+  
+  if (!isInList) {
+    // 명단에 없는 학생은 거절
+    log(`[Professor] ${studentName} (${vid})는 학생명단에 없어 입실 거절`);
+    toast(`학생명단에 없는 학생입니다: ${studentName}`);
+    // 오퍼 제거
+    try {
+      await db.ref(`rooms/${roomId}/offers/${vid}`).remove();
+    } catch(e) {
+      console.warn('오퍼 제거 실패:', e);
+    }
+    return;
+  }
+  
   const li = document.createElement('li');
   li.id = `pending-${vid}`;
   li.innerHTML = `
     <div>
-      <div><b>학생</b> <span class="tag">${vid}</span></div>
+      <div><b>학생</b> <span class="tag">${studentName || vid}</span></div>
       <div class="muted" style="font-size:12px">오퍼 수신</div>
     </div>
     <div class="row">
@@ -2519,9 +2939,13 @@ function denyStudent(vid, li){
 
 async function startProfessor(){
   try {
-    roomId = (roomIdInput ? roomIdInput.value||'' : '').replace(/\s+/g,''); if(!roomId){ roomId=generateRoomId(); if(roomIdInput) roomIdInput.value=roomId; }
+    roomId = (roomIdInput ? roomIdInput.value||'' : '').replace(/\s+/g,''); 
+    if(!roomId){ 
+      toast('과목명칭을 입력해주세요');
+      throw new Error('과목명칭을 입력해주세요');
+    }
     
-    // 강의실이 시작될 때 기존 데이터 모두 초기화 (과거에 사용된 강의실 코드라도 새로 시작)
+    // 강의실이 시작될 때 기존 데이터 모두 초기화 (과거에 사용된 과목명칭라도 새로 시작)
     try {
       await db.ref(`rooms/${roomId}`).remove();
       log('[Professor] 기존 강의실 데이터 초기화 완료');
@@ -2540,6 +2964,12 @@ async function startProfessor(){
     }
     
     myUserId = 'professor-' + randomId(6);
+    
+    // 교수 입실 시 저장된 학생명단 불러오기
+    if (role === 'professor') {
+      await loadStudentList();
+    }
+    
     localStream = await buildLocalStreamForCurrentMode();
     
     if (!localStream && role==='professor') {
@@ -2621,6 +3051,19 @@ async function startProfessor(){
 
     startBtn.disabled = true; stopBtn.disabled = false; isRunning=true;
     
+    // 교수 입실 시 수업시작/수업종료/출석확인 버튼 표시
+    if (classStartBtn) {
+      classStartBtn.style.display = 'inline-block';
+      classStartBtn.disabled = false;
+    }
+    if (classEndBtn) {
+      classEndBtn.style.display = 'inline-block';
+      classEndBtn.disabled = true;
+    }
+    if (attendanceCheckBtn) {
+      attendanceCheckBtn.style.display = 'inline-block';
+    }
+    
     // 교수 입실 시 모든 카메라 영상 표시
     try {
       await displayAllCameras();
@@ -2640,8 +3083,8 @@ async function startProfessor(){
       }, 200);
     }
     
-    logStatus(`교수 대기/송출 중… 강의실 코드: ${roomId} · 모드: ${comm}`);
-    toast('학생에게 강의실 코드를 공유하세요');
+    logStatus(`교수 대기/송출 중… 과목명칭: ${roomId} · 모드: ${comm}`);
+    toast('학생에게 과목명칭를 공유하세요');
     
     // 채팅 초기화
     chatMessages.innerHTML = '';
@@ -2883,10 +3326,33 @@ async function allowStudentQuestion(studentId) {
       professorPiPWasActiveBeforeQuestion = false;
     }
     
+    // 교수측: 전체화면 상태 저장 및 학생 비디오 전체화면으로 표시
+    wasFullscreenBeforeQuestion = fullscreenVideo.classList.contains('show');
+    if (fsVideo && studentVideo.srcObject) {
+      fsVideo.srcObject = studentVideo.srcObject;
+      fullscreenVideo.classList.add('show');
+      fsVideo.setAttribute('playsinline', '');
+      fsVideo.setAttribute('webkit-playsinline', '');
+      await fsVideo.play();
+      log(`[Professor] 학생 ${studentId.substring(0,6)} 비디오 전체화면 표시`);
+    }
+    
     // 학생 PiP 시작 (교수 PiP를 대체)
     if (!document.pictureInPictureElement || document.pictureInPictureElement !== studentQuestionPiPVideo) {
       await studentQuestionPiPVideo.requestPictureInPicture();
       log(`[Professor] 학생 ${studentId.substring(0,6)} 질문 허락 - PiP 시작 (교수 PiP 대체)`);
+    }
+    
+    // Firebase에 질문 활성화 신호 전송 (모든 학생에게)
+    try {
+      await db.ref(`rooms/${roomId}/questionActive`).set({
+        studentId: studentId,
+        timestamp: Date.now(),
+        active: true
+      });
+      log(`[Professor] 질문 활성화 신호 전송: ${studentId}`);
+    } catch(e) {
+      console.warn('질문 활성화 신호 전송 실패:', e);
     }
     
     // 질문 요청 상태 제거
@@ -2917,6 +3383,7 @@ async function allowStudentQuestion(studentId) {
     if (endBtn) endBtn.style.display = 'block';
     
     currentQuestionStudentId = studentId;
+    questionFullscreenStudentId = studentId;
     toast(`학생 ${studentId.substring(0,6)}에게 질문 허락됨`);
     
   } catch(e) {
@@ -2933,6 +3400,27 @@ async function endStudentQuestion(studentId) {
   }
   
   try {
+    // 교수측: 전체화면 닫기 (이전 상태로 복귀)
+    if (fullscreenVideo.classList.contains('show') && questionFullscreenStudentId === studentId) {
+      fullscreenVideo.classList.remove('show');
+      if (fsVideo) {
+        fsVideo.srcObject = null;
+      }
+      log(`[Professor] 전체화면 닫기 (이전 상태로 복귀)`);
+    }
+    
+    // Firebase에 질문 종료 신호 전송 (모든 학생에게)
+    try {
+      await db.ref(`rooms/${roomId}/questionActive`).set({
+        studentId: null,
+        timestamp: Date.now(),
+        active: false
+      });
+      log(`[Professor] 질문 종료 신호 전송`);
+    } catch(e) {
+      console.warn('질문 종료 신호 전송 실패:', e);
+    }
+    
     // 학생 PiP 종료
     if (studentQuestionPiPVideo && document.pictureInPictureElement === studentQuestionPiPVideo) {
       await document.exitPictureInPicture();
@@ -3227,7 +3715,11 @@ async function acceptStudent(vid, data, li){
 
 async function startStudent(){
   try {
-    roomId = (roomIdInput ? roomIdInput.value||'' : '').replace(/\s+/g,''); if(!roomId){ roomId=generateRoomId(); if(roomIdInput) roomIdInput.value=roomId; }
+    roomId = (roomIdInput ? roomIdInput.value||'' : '').replace(/\s+/g,''); 
+    if(!roomId){ 
+      toast('과목명칭을 입력해주세요');
+      throw new Error('과목명칭을 입력해주세요');
+    }
     viewerId = randomId(8);
     myUserId = viewerId;
     pc = createPeer();
@@ -3501,8 +3993,36 @@ async function startStudent(){
   preferH264(pc);
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
+  // 학생명단 확인 (입실 전)
+  const studentName = userNameInput ? userNameInput.value.trim() : '';
+  if (studentName) {
+    const isInList = await checkStudentInList(studentName);
+    if (!isInList) {
+      toast('학생명단에 없는 학생입니다. 입실할 수 없습니다.');
+      log(`[Student] 학생명단에 없어 입실 거절: ${studentName}`);
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+      isRunning = false;
+      if (localStream) {
+        localStream.getTracks().forEach(t => t.stop());
+        localStream = null;
+      }
+      if (pc) {
+        try {
+          pc.close();
+        } catch(e2) {}
+        pc = null;
+      }
+      throw new Error('학생명단에 없는 학생입니다');
+    }
+  }
+  
   const offerRef = db.ref(`rooms/${roomId}/offers/${viewerId}`);
-  await offerRef.set({ sdp: offer.sdp, ts: Date.now() }).catch(e=>{ alert('오퍼 업로드 실패: '+e.message); });
+  await offerRef.set({ 
+    sdp: offer.sdp, 
+    ts: Date.now(),
+    userName: studentName || viewerId.substring(0,6) // 학생 이름도 함께 전송
+  }).catch(e=>{ alert('오퍼 업로드 실패: '+e.message); });
 
   const answersRef = db.ref(`rooms/${roomId}/answers/${viewerId}`);
   firebaseListeners.answers = answersRef;
@@ -3516,6 +4036,16 @@ async function startStudent(){
   });
 
     startBtn.disabled = true; stopBtn.disabled = false; isRunning=true;
+    
+    // 학생 입실 시 입실 시간 기록
+    if (studentName) {
+      await recordStudentEntry(studentName);
+    }
+    
+    // 학생 입실 시 출석확인 버튼 표시
+    if (attendanceCheckBtn) {
+      attendanceCheckBtn.style.display = 'inline-block';
+    }
     
     // 시작 후 UI 업데이트 (버튼 표시 등)
     refreshUIByMode();
@@ -3552,7 +4082,21 @@ if (startBtn) startBtn.addEventListener('click', async ()=>{
     if (role==='professor') await startProfessor(); else await startStudent();
   }catch(e){ alert('시작 실패: '+e.message); }
 });
-if (stopBtn) stopBtn.addEventListener('click', async ()=>{ await cleanup(); });
+if (stopBtn) stopBtn.addEventListener('click', async ()=>{
+  // 학생 퇴실 시 퇴실 시간 기록
+  if (role === 'student' && studentEntryTime) {
+    await recordStudentExit();
+  }
+  // 교수 퇴실 시 버튼 숨기기
+  if (role === 'professor') {
+    if (classStartBtn) classStartBtn.style.display = 'none';
+    if (classEndBtn) classEndBtn.style.display = 'none';
+    if (attendanceCheckBtn) attendanceCheckBtn.style.display = 'none';
+  } else {
+    if (attendanceCheckBtn) attendanceCheckBtn.style.display = 'none';
+  }
+  await cleanup();
+});
 
 // 승인 대기 목록 및 채팅 모달 열기 버튼
 const showChatBtn = document.getElementById('showChatBtn');
@@ -3691,7 +4235,7 @@ async function cleanup(){
   chatInput.value = '';
   myUserId = '';
   viewerId = '';  // 학생 ID 리셋
-  roomId = '';  // 강의실 코드 리셋
+  roomId = '';  // 과목명칭 리셋
   if (infoEl) infoEl.textContent = '-';  // 연결 정보 초기화
   
   // 화면공유 정리
@@ -3763,3 +4307,4 @@ window.addEventListener('error', e=> log('[Error] ' + e.message));
 </script>
 </body>
 </html>
+</html>승인
