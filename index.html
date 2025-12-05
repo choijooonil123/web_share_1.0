@@ -557,12 +557,12 @@ async function startCameraPiP(cameraStreamToUse) {
   try {
     // 화면공유 중이면 고정 위치 오버레이 사용, 아니면 PiP 사용
     if (isScreenSharing) {
-      // 화면공유 중: 오른쪽 상단에 고정 위치 오버레이로 표시
+      // 화면공유 중: 오른쪽 상단에 드래그 가능한 오버레이로 표시
       let cameraOverlay = document.getElementById('professorCameraOverlay');
       if (!cameraOverlay) {
         cameraOverlay = document.createElement('div');
         cameraOverlay.id = 'professorCameraOverlay';
-        cameraOverlay.style.cssText = 'position: fixed; top: 20px; right: 20px; width: 240px; height: 135px; z-index: 10000; background: #000; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.5); border: 2px solid rgba(106,166,255,0.8);';
+        cameraOverlay.style.cssText = 'position: fixed; top: 20px; right: 20px; width: 240px; height: 135px; z-index: 10000; background: #000; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.5); border: 2px solid rgba(106,166,255,0.8); cursor: move;';
         document.body.appendChild(cameraOverlay);
         
         const overlayVideo = document.createElement('video');
@@ -570,8 +570,63 @@ async function startCameraPiP(cameraStreamToUse) {
         overlayVideo.autoplay = true;
         overlayVideo.muted = true;
         overlayVideo.playsInline = true;
-        overlayVideo.style.cssText = 'width: 100%; height: 100%; object-fit: cover;';
+        overlayVideo.style.cssText = 'width: 100%; height: 100%; object-fit: cover; pointer-events: none;';
         cameraOverlay.appendChild(overlayVideo);
+        
+        // 드래그 기능 추가
+        let isDragging = false;
+        let currentX = 0;
+        let currentY = 0;
+        let initialX = 0;
+        let initialY = 0;
+        
+        const startDrag = (e) => {
+          if (e.button !== 0 && e.type !== 'touchstart') return; // 마우스 왼쪽 버튼 또는 터치만
+          isDragging = true;
+          if (e.type === 'touchstart') {
+            initialX = e.touches[0].clientX - cameraOverlay.offsetLeft;
+            initialY = e.touches[0].clientY - cameraOverlay.offsetTop;
+          } else {
+            initialX = e.clientX - cameraOverlay.offsetLeft;
+            initialY = e.clientY - cameraOverlay.offsetTop;
+          }
+          cameraOverlay.style.cursor = 'grabbing';
+        };
+        
+        const drag = (e) => {
+          if (!isDragging) return;
+          e.preventDefault();
+          
+          if (e.type === 'touchmove') {
+            currentX = e.touches[0].clientX - initialX;
+            currentY = e.touches[0].clientY - initialY;
+          } else {
+            currentX = e.clientX - initialX;
+            currentY = e.clientY - initialY;
+          }
+          
+          // 화면 경계 체크
+          const maxX = window.innerWidth - cameraOverlay.offsetWidth;
+          const maxY = window.innerHeight - cameraOverlay.offsetHeight;
+          currentX = Math.max(0, Math.min(currentX, maxX));
+          currentY = Math.max(0, Math.min(currentY, maxY));
+          
+          cameraOverlay.style.left = currentX + 'px';
+          cameraOverlay.style.top = currentY + 'px';
+          cameraOverlay.style.right = 'auto';
+        };
+        
+        const stopDrag = () => {
+          isDragging = false;
+          cameraOverlay.style.cursor = 'move';
+        };
+        
+        cameraOverlay.addEventListener('mousedown', startDrag);
+        cameraOverlay.addEventListener('touchstart', startDrag, { passive: false });
+        document.addEventListener('mousemove', drag);
+        document.addEventListener('touchmove', drag, { passive: false });
+        document.addEventListener('mouseup', stopDrag);
+        document.addEventListener('touchend', stopDrag);
       }
       
       const overlayVideo = document.getElementById('professorCameraOverlayVideo');
@@ -579,7 +634,7 @@ async function startCameraPiP(cameraStreamToUse) {
         overlayVideo.srcObject = cameraStreamToUse;
         await overlayVideo.play();
         cameraOverlay.style.display = 'block';
-        log('[Professor] 화면공유 중 카메라 오버레이 표시 (오른쪽 상단)');
+        log('[Professor] 화면공유 중 카메라 오버레이 표시 (드래그 가능)');
       }
     } else {
       // 화면공유 중이 아닐 때: PiP 사용
