@@ -121,6 +121,8 @@
       <!-- 교수 전용 버튼 -->
       <button class="primary" id="classStartBtn" style="padding:8px 16px;display:none">수업시작</button>
       <button class="danger" id="classEndBtn" style="padding:8px 16px;display:none">수업종료</button>
+      <!-- 수강생 명단 버튼 -->
+      <button id="studentListBtn" style="padding:8px 16px;display:none;background:#6aa6ff">수강생 명단</button>
       <!-- 출석확인 버튼 -->
       <button id="attendanceCheckBtn" style="padding:8px 16px;display:none;background:#4cd97b">출석확인</button>
     </div>
@@ -130,6 +132,9 @@
 
 <main>
   <section class="card">
+    <!-- 방송 모드: 메인 비디오 플레이어 -->
+    <video id="player" class="hidden" autoplay playsinline webkit-playsinline controls style="width:100%;max-height:70vh;background:#000;border-radius:8px"></video>
+    
     <!-- 미팅 모드: 다자간 비디오 그리드 -->
     <div id="meetingVideos">
       <div class="meeting-grid" id="remoteVideosGrid">
@@ -269,6 +274,7 @@ firebase.auth().signInAnonymously().catch(err=>{ console.error('Auth failed:', e
 const db = firebase.database();
 
 /* ---------------- UI refs ---------------- */
+const player = document.getElementById('player');               // 방송 모드 메인 비디오
 const meetingVideos = document.getElementById('meetingVideos');   // 미팅 모드 컨테이너
 const localPreview = document.getElementById('localPreview');
 const audioMirror = document.getElementById('audiomirror');
@@ -316,6 +322,7 @@ const saveStudentListBtn = document.getElementById('saveStudentListBtn');
 const clearStudentListBtn = document.getElementById('clearStudentListBtn');
 const classStartBtn = document.getElementById('classStartBtn');
 const classEndBtn = document.getElementById('classEndBtn');
+const studentListBtn = document.getElementById('studentListBtn');
 const attendanceCheckBtn = document.getElementById('attendanceCheckBtn');
 const attendanceModal = document.getElementById('attendanceModal');
 const attendanceModalClose = document.getElementById('attendanceModalClose');
@@ -2858,6 +2865,13 @@ if (clearStudentListBtn) {
   clearStudentListBtn.addEventListener('click', clearStudentList);
 }
 
+// 수강생 명단 버튼 클릭 이벤트
+if (studentListBtn) {
+  studentListBtn.addEventListener('click', () => {
+    showPendingModal(); // 학생명단 관리 모달 열기
+  });
+}
+
 // 과목명칭 입력 시 자동으로 저장된 학생명단 불러오기
 let roomIdInputTimeout = null;
 if (roomIdInput) {
@@ -3112,7 +3126,7 @@ async function startProfessor(){
 
     startBtn.disabled = true; stopBtn.disabled = false; isRunning=true;
     
-    // 교수 입실 시 수업시작/수업종료/출석확인 버튼 표시
+    // 교수 입실 시 수업시작/수업종료/수강생명단/출석확인 버튼 표시
     if (classStartBtn) {
       classStartBtn.style.display = 'inline-block';
       classStartBtn.disabled = false;
@@ -3120,6 +3134,9 @@ async function startProfessor(){
     if (classEndBtn) {
       classEndBtn.style.display = 'inline-block';
       classEndBtn.disabled = true;
+    }
+    if (studentListBtn) {
+      studentListBtn.style.display = 'inline-block';
     }
     if (attendanceCheckBtn) {
       attendanceCheckBtn.style.display = 'inline-block';
@@ -4035,39 +4052,43 @@ async function startStudent(){
       
       if (isiOS) showIOSUnmuteOverlayIfNeeded(); else unmuteBtn.style.display='inline-block';
     }else{
-      // 미팅 모드: 교수의 카메라를 player에 표시
+      // 미팅 모드: 교수의 카메라를 비디오 그리드에 표시
       if (track.kind === 'video') {
-        const cameraLabel = track.label || `교수 카메라 ${broadcastAllCameras.size + 1}`;
+        const cameraLabel = track.label || `교수 카메라`;
+        const professorVideoId = 'professor-camera-' + track.id.substring(0, 8);
         
         // 중복 체크
-        let isDuplicate = false;
-        broadcastAllCameras.forEach((existingCamera, existingTrackId) => {
-          if (existingCamera.label === cameraLabel && existingCamera.track.id !== track.id) {
-            isDuplicate = true;
-          }
-        });
-        
-        if (!isDuplicate) {
-          broadcastAllCameras.set(track.id, { track, label: cameraLabel });
-          log(`[Student] 미팅 모드 - 교수 카메라 트랙 수신: label="${cameraLabel}"`);
-          
-          // 교수 카메라를 player에 표시
-          const cameraStream = new MediaStream([track]);
-          player.srcObject = cameraStream;
-          player.classList.remove('hidden');
-          (async ()=>{ try{ 
-            player.setAttribute('playsinline',''); 
-            player.setAttribute('webkit-playsinline',''); 
-            await player.play(); 
-          }catch(e){} })();
-          log('[Student] 미팅 모드 - 교수 카메라를 player에 표시');
-          
-          // 트랙 종료 시 처리
-          track.onended = () => {
-            broadcastAllCameras.delete(track.id);
-            log(`[Student] 미팅 모드 - 교수 카메라 트랙 종료: ${cameraLabel}`);
-          };
+        if (document.getElementById(`remote-video-${professorVideoId}`)) {
+          log(`[Student] 미팅 모드 - 중복 카메라 트랙 무시: ${cameraLabel}`);
+          return;
         }
+        
+        broadcastAllCameras.set(track.id, { track, label: cameraLabel });
+        log(`[Student] 미팅 모드 - 교수 카메라 트랙 수신: label="${cameraLabel}"`);
+        
+        // 교수 카메라를 비디오 그리드에 추가
+        const videoEl = createRemoteVideoElement(professorVideoId, '교수');
+        if (remoteVideosGrid && videoEl) {
+          remoteVideosGrid.appendChild(videoEl);
+          const video = videoEl.querySelector('video');
+          if (video) {
+            const cameraStream = new MediaStream([track]);
+            video.srcObject = cameraStream;
+            video.play().catch(e => {
+              console.warn('교수 카메라 재생 실패:', e);
+            });
+          }
+          meetingVideos.classList.remove('hidden');
+          log('[Student] 미팅 모드 - 교수 카메라를 비디오 그리드에 표시');
+        }
+        
+        // 트랙 종료 시 처리
+        track.onended = () => {
+          broadcastAllCameras.delete(track.id);
+          const videoWrapper = document.getElementById(`remote-video-${professorVideoId}`);
+          if (videoWrapper) videoWrapper.remove();
+          log(`[Student] 미팅 모드 - 교수 카메라 트랙 종료: ${cameraLabel}`);
+        };
       } else if (track.kind === 'audio') {
         // 오디오 트랙 처리
         audioMirror.srcObject = stream;
@@ -4212,6 +4233,7 @@ if (stopBtn) stopBtn.addEventListener('click', async ()=>{
   if (role === 'professor') {
     if (classStartBtn) classStartBtn.style.display = 'none';
     if (classEndBtn) classEndBtn.style.display = 'none';
+    if (studentListBtn) studentListBtn.style.display = 'none';
     if (attendanceCheckBtn) attendanceCheckBtn.style.display = 'none';
   } else {
     if (attendanceCheckBtn) attendanceCheckBtn.style.display = 'none';
