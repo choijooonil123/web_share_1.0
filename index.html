@@ -3910,23 +3910,34 @@ async function startStudent(){
             toast('화면공유가 시작되었습니다');
           }
           
-          // 모든 카메라 그리드 업데이트 (화면공유와 함께 표시)
-          if (broadcastAllCameras && broadcastAllCameras.size > 0) {
-            displayStudentAllCameras();
-          }
         } else if (!isScreenTrack) {
-          // 카메라 트랙 - 모든 카메라를 저장하고 표시 (중복 제거: 그리드에만 표시)
+          // 카메라 트랙 - player에 표시 (화면공유가 없을 때)
           const cameraLabel = track.label || `카메라 ${broadcastAllCameras.size + 1}`;
           broadcastAllCameras.set(track.id, { track, label: cameraLabel });
           log(`[Student] 카메라 트랙 수신: label="${cameraLabel}" (총 ${broadcastAllCameras.size}개)`);
           
-          // 모든 카메라를 그리드로 표시
-          displayStudentAllCameras();
+          // 화면공유가 없으면 카메라를 player에 표시
+          if (!broadcastScreenTrack) {
+            const cameraStream = new MediaStream([track]);
+            player.srcObject = cameraStream;
+            player.classList.remove('hidden');
+            (async ()=>{ try{ 
+              player.setAttribute('playsinline',''); 
+              player.setAttribute('webkit-playsinline',''); 
+              await player.play(); 
+            }catch(e){} })();
+            
+            // 오디오 트랙도 함께 처리
+            const audioTracks = stream.getAudioTracks();
+            if (audioTracks.length > 0) {
+              audioMirror.srcObject = stream;
+            }
+            log('[Student] 교수 카메라 스트림을 player에 표시');
+          }
           
           // 트랙 종료 시 처리
           track.onended = () => {
             broadcastAllCameras.delete(track.id);
-            displayStudentAllCameras(); // 그리드 업데이트
             log(`[Student] 카메라 트랙 종료: ${cameraLabel}`);
           };
         } else if (!broadcastScreenTrack && !broadcastCameraTrack) {
@@ -4024,33 +4035,38 @@ async function startStudent(){
       
       if (isiOS) showIOSUnmuteOverlayIfNeeded(); else unmuteBtn.style.display='inline-block';
     }else{
-      // 미팅 모드: 교수의 모든 카메라를 수신하여 표시
+      // 미팅 모드: 교수의 카메라를 player에 표시
       if (track.kind === 'video') {
-        // 비디오 트랙인 경우 모든 카메라로 처리
         const cameraLabel = track.label || `교수 카메라 ${broadcastAllCameras.size + 1}`;
         
-        // 중복 체크: 같은 label의 트랙이 이미 있는지 확인
+        // 중복 체크
         let isDuplicate = false;
         broadcastAllCameras.forEach((existingCamera, existingTrackId) => {
           if (existingCamera.label === cameraLabel && existingCamera.track.id !== track.id) {
             isDuplicate = true;
-            log(`[Student] 미팅 모드 - 중복 카메라 트랙 무시: label="${cameraLabel}" (기존 track.id: ${existingTrackId}, 새 track.id: ${track.id})`);
           }
         });
         
         if (!isDuplicate) {
-        broadcastAllCameras.set(track.id, { track, label: cameraLabel });
-          log(`[Student] 미팅 모드 - 교수 카메라 트랙 수신: label="${cameraLabel}" (총 ${broadcastAllCameras.size}개)`);
-        
-        // 모든 카메라를 그리드로 표시
-          displayStudentAllCameras();
-        
-        // 트랙 종료 시 처리
-        track.onended = () => {
-          broadcastAllCameras.delete(track.id);
-            displayStudentAllCameras(); // 그리드 업데이트
+          broadcastAllCameras.set(track.id, { track, label: cameraLabel });
+          log(`[Student] 미팅 모드 - 교수 카메라 트랙 수신: label="${cameraLabel}"`);
+          
+          // 교수 카메라를 player에 표시
+          const cameraStream = new MediaStream([track]);
+          player.srcObject = cameraStream;
+          player.classList.remove('hidden');
+          (async ()=>{ try{ 
+            player.setAttribute('playsinline',''); 
+            player.setAttribute('webkit-playsinline',''); 
+            await player.play(); 
+          }catch(e){} })();
+          log('[Student] 미팅 모드 - 교수 카메라를 player에 표시');
+          
+          // 트랙 종료 시 처리
+          track.onended = () => {
+            broadcastAllCameras.delete(track.id);
             log(`[Student] 미팅 모드 - 교수 카메라 트랙 종료: ${cameraLabel}`);
-        };
+          };
         }
       } else if (track.kind === 'audio') {
         // 오디오 트랙 처리
