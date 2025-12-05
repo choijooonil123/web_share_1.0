@@ -1706,15 +1706,11 @@ function openProfessorCameraWindow(cameraStream, isScreenShareMode = false, scre
         windowWidth = Math.floor(sharedScreenWidth / 6);
         windowHeight = Math.floor(sharedScreenHeight / 4);
         
-        // 공유 화면의 우측 상단에 배치 (너무 치우치지 않게 화면 크기의 5% 마진)
-        const marginX = Math.max(50, Math.floor(sharedScreenWidth * 0.05)); // 최소 50px, 화면 너비의 5%
-        const marginY = Math.max(40, Math.floor(sharedScreenHeight * 0.05)); // 최소 40px, 화면 높이의 5%
+        // 공유 화면의 중앙에 배치
+        windowLeft = Math.floor((sharedScreenWidth - windowWidth) / 2);
+        windowTop = Math.floor((sharedScreenHeight - windowHeight) / 2);
         
-        // 공유 화면의 우측 상단에 배치 (적당한 여백으로)
-        windowLeft = sharedScreenWidth - windowWidth - marginX;
-        windowTop = marginY;
-        
-        log(`[Professor] 화면공유 모드: 공유 화면 크기 ${sharedScreenWidth}x${sharedScreenHeight}, 창 크기 ${windowWidth}x${windowHeight}, 위치: ${windowLeft},${windowTop} (우측 상단, 마진: ${marginX}x${marginY})`);
+        log(`[Professor] 화면공유 모드: 공유 화면 크기 ${sharedScreenWidth}x${sharedScreenHeight}, 창 크기 ${windowWidth}x${windowHeight}, 위치: ${windowLeft},${windowTop} (중앙)`);
       } else {
         // 일반 모드: 기존 로직 유지
         const primaryScreenWidth = window.screen.width;
