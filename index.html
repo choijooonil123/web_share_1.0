@@ -163,11 +163,11 @@
 
 <div id="toast"></div>
 
-<!-- 승인대기목록 모달 -->
+<!-- 학생명단 관리 모달 (교수 전용) -->
 <div id="pendingModal" class="modal">
   <div class="modal-content">
     <div class="modal-header">
-      <h3>승인 대기 목록 (교수 전용)</h3>
+      <h3>학생명단 관리 (교수 전용)</h3>
       <button class="modal-close" id="pendingModalClose">×</button>
     </div>
     <!-- 학생명단 입력 영역 (교수 전용) -->
@@ -180,7 +180,7 @@
       </div>
       <div id="studentListStatus" style="margin-top:8px;font-size:11px;color:var(--muted)"></div>
     </div>
-    <ul id="pending"></ul>
+    <ul id="pending" style="display:none"></ul>
   </div>
 </div>
 
@@ -2970,6 +2970,25 @@ if (roomIdInput) {
 document.addEventListener('DOMContentLoaded', async () => {
   // 약간의 지연 후 실행 (Firebase 초기화 대기)
   setTimeout(async () => {
+    // "청소년문화" 과목 학생명단 초기화
+    const 청소년문화_학생명단 = [
+      '유은희','박경희','찐후훙','조규원','정선숙','이미선','윤윤정','엄주영',
+      '배은성','배영희','김종명','유정연','정유리','황미영','김희애','김동현',
+      '김명희','김서영','김수진','게스트'
+    ];
+    localStorage.setItem('studentList_청소년문화', JSON.stringify(청소년문화_학생명단));
+    
+    // Firebase에도 저장 시도
+    try {
+      await db.ref('studentLists/청소년문화').set({
+        names: 청소년문화_학생명단,
+        timestamp: Date.now()
+      });
+      console.log('[Init] 청소년문화 학생명단 Firebase 저장 완료');
+    } catch(e) {
+      console.log('[Init] 청소년문화 학생명단 localStorage에만 저장됨');
+    }
+    
     if (roomIdInput && roomIdInput.value.trim() && role === 'professor') {
       await loadStudentList(roomIdInput.value.trim());
     }
@@ -2978,11 +2997,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 /* ---------------- Signaling: Professor / Student ---------------- */
 async function addPending(vid, data){
-  // 이미 pending 목록에 있거나 이미 연결된 학생는 무시
-  if (document.getElementById(`pending-${vid}`)) {
-    log(`[Professor] ${vid}는 이미 승인 대기 중입니다`);
-    return;
-  }
+  // 이미 연결된 학생은 무시
   if (peerConnections.has(vid)) {
     log(`[Professor] ${vid}는 이미 연결되어 있습니다`);
     return;
@@ -3005,24 +3020,10 @@ async function addPending(vid, data){
     return;
   }
   
-  const li = document.createElement('li');
-  li.id = `pending-${vid}`;
-  li.innerHTML = `
-    <div>
-      <div><b>학생</b> <span class="tag">${studentName || vid}</span></div>
-      <div class="muted" style="font-size:12px">오퍼 수신</div>
-    </div>
-    <div class="row">
-      <button class="primary">허용</button>
-      <button class="danger">거절</button>
-    </div>
-  `;
-  const [allowBtn, denyBtn] = li.querySelectorAll('button');
-  allowBtn.onclick = () => acceptStudent(vid, data, li);
-  denyBtn.onclick  = () => denyStudent(vid, li);
-  pendingEl.appendChild(li);
-  // 새 승인 요청이 오면 모달 자동 표시
-  showPendingModal();
+  // 학생명단에 있는 학생은 자동 승인
+  log(`[Professor] ${studentName} (${vid}) 자동 승인 처리`);
+  toast(`${studentName} 학생 입실`);
+  await acceptStudent(vid, data, null);
 }
 function denyStudent(vid, li){
   // Firebase 데이터 정리
