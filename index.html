@@ -729,73 +729,95 @@ async function showCameraOverlay(cameraStreamToUse) {
       position: fixed;
       top: 20px;
       right: 20px;
-      width: 280px;
-      height: 210px;
+      width: 320px;
+      height: 240px;
+      min-width: 160px;
+      min-height: 120px;
+      max-width: 90vw;
+      max-height: 90vh;
       z-index: 10000;
       background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
       border-radius: 12px;
-      overflow: hidden;
+      overflow: visible;
       box-shadow: 0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(106,166,255,0.3);
-      cursor: move;
-      transition: box-shadow 0.2s ease;
+      user-select: none;
     `;
     document.body.appendChild(cameraOverlay);
     
+    // 상태 변수
+    let isDragging = false;
+    let isResizing = false;
+    let resizeDirection = '';
+    let startX = 0, startY = 0;
+    let startWidth = 0, startHeight = 0;
+    let startLeft = 0, startTop = 0;
+    
     // 헤더 (드래그 핸들 + 컨트롤)
     const header = document.createElement('div');
+    header.id = 'cameraPipHeader';
     header.style.cssText = `
       position: absolute;
       top: 0;
       left: 0;
       right: 0;
-      height: 32px;
-      background: linear-gradient(180deg, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.3) 70%, transparent 100%);
+      height: 36px;
+      background: linear-gradient(180deg, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.4) 70%, transparent 100%);
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 4px 10px;
-      z-index: 2;
+      padding: 6px 12px;
+      z-index: 3;
+      cursor: move;
+      border-radius: 12px 12px 0 0;
     `;
     cameraOverlay.appendChild(header);
     
     // 타이틀
     const title = document.createElement('span');
-    title.textContent = '📷 카메라';
-    title.style.cssText = 'color: #fff; font-size: 12px; font-weight: 500; text-shadow: 0 1px 2px rgba(0,0,0,0.5);';
+    title.textContent = '📷 카메라 PiP';
+    title.style.cssText = 'color: #fff; font-size: 13px; font-weight: 600; text-shadow: 0 1px 3px rgba(0,0,0,0.7); pointer-events: none;';
     header.appendChild(title);
     
     // 컨트롤 버튼 그룹
     const controls = document.createElement('div');
-    controls.style.cssText = 'display: flex; gap: 6px;';
+    controls.style.cssText = 'display: flex; gap: 8px;';
     header.appendChild(controls);
     
     // 최소화 버튼
     const minimizeBtn = document.createElement('button');
     minimizeBtn.textContent = '−';
+    minimizeBtn.title = '최소화';
     minimizeBtn.style.cssText = `
-      width: 22px; height: 22px; border-radius: 50%;
-      border: none; background: rgba(255,255,255,0.15);
-      color: #fff; cursor: pointer; font-size: 14px; font-weight: bold;
+      width: 24px; height: 24px; border-radius: 50%;
+      border: none; background: rgba(255,255,255,0.2);
+      color: #fff; cursor: pointer; font-size: 16px; font-weight: bold;
       display: flex; align-items: center; justify-content: center;
-      transition: background 0.2s;
+      transition: all 0.2s;
     `;
-    minimizeBtn.onmouseover = () => minimizeBtn.style.background = 'rgba(255,255,255,0.3)';
-    minimizeBtn.onmouseout = () => minimizeBtn.style.background = 'rgba(255,255,255,0.15)';
+    minimizeBtn.onmouseover = () => { minimizeBtn.style.background = 'rgba(255,255,255,0.4)'; minimizeBtn.style.transform = 'scale(1.1)'; };
+    minimizeBtn.onmouseout = () => { minimizeBtn.style.background = 'rgba(255,255,255,0.2)'; minimizeBtn.style.transform = 'scale(1)'; };
     minimizeBtn.onclick = (e) => {
       e.stopPropagation();
       const video = document.getElementById('professorCameraOverlayVideo');
+      const resizeHandles = cameraOverlay.querySelectorAll('.resize-handle');
       if (cameraOverlay.dataset.minimized === 'true') {
-        cameraOverlay.style.width = '280px';
-        cameraOverlay.style.height = '210px';
+        cameraOverlay.style.width = cameraOverlay.dataset.prevWidth || '320px';
+        cameraOverlay.style.height = cameraOverlay.dataset.prevHeight || '240px';
         if (video) video.style.display = 'block';
+        resizeHandles.forEach(h => h.style.display = 'block');
         cameraOverlay.dataset.minimized = 'false';
         minimizeBtn.textContent = '−';
+        minimizeBtn.title = '최소화';
       } else {
-        cameraOverlay.style.width = '120px';
-        cameraOverlay.style.height = '32px';
+        cameraOverlay.dataset.prevWidth = cameraOverlay.style.width;
+        cameraOverlay.dataset.prevHeight = cameraOverlay.style.height;
+        cameraOverlay.style.width = '140px';
+        cameraOverlay.style.height = '36px';
         if (video) video.style.display = 'none';
+        resizeHandles.forEach(h => h.style.display = 'none');
         cameraOverlay.dataset.minimized = 'true';
         minimizeBtn.textContent = '□';
+        minimizeBtn.title = '복원';
       }
     };
     controls.appendChild(minimizeBtn);
@@ -803,15 +825,16 @@ async function showCameraOverlay(cameraStreamToUse) {
     // 닫기 버튼
     const closeBtn = document.createElement('button');
     closeBtn.textContent = '×';
+    closeBtn.title = '닫기';
     closeBtn.style.cssText = `
-      width: 22px; height: 22px; border-radius: 50%;
-      border: none; background: rgba(255,106,106,0.6);
-      color: #fff; cursor: pointer; font-size: 16px; font-weight: bold;
+      width: 24px; height: 24px; border-radius: 50%;
+      border: none; background: rgba(255,80,80,0.7);
+      color: #fff; cursor: pointer; font-size: 18px; font-weight: bold;
       display: flex; align-items: center; justify-content: center;
-      transition: background 0.2s;
+      transition: all 0.2s;
     `;
-    closeBtn.onmouseover = () => closeBtn.style.background = 'rgba(255,106,106,0.9)';
-    closeBtn.onmouseout = () => closeBtn.style.background = 'rgba(255,106,106,0.6)';
+    closeBtn.onmouseover = () => { closeBtn.style.background = 'rgba(255,80,80,1)'; closeBtn.style.transform = 'scale(1.1)'; };
+    closeBtn.onmouseout = () => { closeBtn.style.background = 'rgba(255,80,80,0.7)'; closeBtn.style.transform = 'scale(1)'; };
     closeBtn.onclick = (e) => {
       e.stopPropagation();
       cameraOverlay.style.display = 'none';
@@ -827,99 +850,174 @@ async function showCameraOverlay(cameraStreamToUse) {
     overlayVideo.muted = true;
     overlayVideo.playsInline = true;
     overlayVideo.style.cssText = `
+      position: absolute;
+      top: 0;
+      left: 0;
       width: 100%;
       height: 100%;
       object-fit: cover;
       pointer-events: none;
       border-radius: 12px;
+      z-index: 1;
     `;
     cameraOverlay.appendChild(overlayVideo);
     
-    // 드래그 기능
-    let isDragging = false;
-    let initialX = 0;
-    let initialY = 0;
+    // 리사이즈 핸들 생성 (8방향)
+    const resizeDirections = [
+      { name: 'n', cursor: 'n-resize', style: 'top: -4px; left: 10%; width: 80%; height: 8px;' },
+      { name: 's', cursor: 's-resize', style: 'bottom: -4px; left: 10%; width: 80%; height: 8px;' },
+      { name: 'e', cursor: 'e-resize', style: 'right: -4px; top: 10%; width: 8px; height: 80%;' },
+      { name: 'w', cursor: 'w-resize', style: 'left: -4px; top: 10%; width: 8px; height: 80%;' },
+      { name: 'ne', cursor: 'ne-resize', style: 'top: -6px; right: -6px; width: 16px; height: 16px; border-radius: 50%;' },
+      { name: 'nw', cursor: 'nw-resize', style: 'top: -6px; left: -6px; width: 16px; height: 16px; border-radius: 50%;' },
+      { name: 'se', cursor: 'se-resize', style: 'bottom: -6px; right: -6px; width: 16px; height: 16px; border-radius: 50%; background: rgba(106,166,255,0.6);' },
+      { name: 'sw', cursor: 'sw-resize', style: 'bottom: -6px; left: -6px; width: 16px; height: 16px; border-radius: 50%;' }
+    ];
     
-    const startDrag = (e) => {
+    resizeDirections.forEach(dir => {
+      const handle = document.createElement('div');
+      handle.className = 'resize-handle';
+      handle.dataset.direction = dir.name;
+      handle.style.cssText = `
+        position: absolute;
+        ${dir.style}
+        cursor: ${dir.cursor};
+        z-index: 4;
+        background: ${dir.name === 'se' ? 'rgba(106,166,255,0.6)' : 'transparent'};
+      `;
+      handle.onmouseenter = () => { if (dir.name.length === 2) handle.style.background = 'rgba(106,166,255,0.8)'; };
+      handle.onmouseleave = () => { handle.style.background = dir.name === 'se' ? 'rgba(106,166,255,0.6)' : 'transparent'; };
+      cameraOverlay.appendChild(handle);
+      
+      // 리사이즈 시작
+      handle.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        isResizing = true;
+        resizeDirection = dir.name;
+        startX = e.clientX;
+        startY = e.clientY;
+        const rect = cameraOverlay.getBoundingClientRect();
+        startWidth = rect.width;
+        startHeight = rect.height;
+        startLeft = rect.left;
+        startTop = rect.top;
+        document.body.style.cursor = dir.cursor;
+        cameraOverlay.style.transition = 'none';
+      });
+      
+      // 터치 리사이즈
+      handle.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        isResizing = true;
+        resizeDirection = dir.name;
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
+        const rect = cameraOverlay.getBoundingClientRect();
+        startWidth = rect.width;
+        startHeight = rect.height;
+        startLeft = rect.left;
+        startTop = rect.top;
+        cameraOverlay.style.transition = 'none';
+      }, { passive: false });
+    });
+    
+    // 드래그 시작 (헤더에서만)
+    header.addEventListener('mousedown', (e) => {
+      if (e.target === closeBtn || e.target === minimizeBtn) return;
+      e.preventDefault();
+      isDragging = true;
+      const rect = cameraOverlay.getBoundingClientRect();
+      startX = e.clientX - rect.left;
+      startY = e.clientY - rect.top;
+      cameraOverlay.style.boxShadow = '0 12px 48px rgba(0,0,0,0.8), 0 0 0 2px rgba(106,166,255,0.6)';
+      cameraOverlay.style.transition = 'none';
+    });
+    
+    header.addEventListener('touchstart', (e) => {
       if (e.target === closeBtn || e.target === minimizeBtn) return;
       isDragging = true;
-      cameraOverlay.style.boxShadow = '0 12px 40px rgba(0,0,0,0.8), 0 0 0 2px rgba(106,166,255,0.5)';
-      if (e.type === 'touchstart') {
-        initialX = e.touches[0].clientX - cameraOverlay.offsetLeft;
-        initialY = e.touches[0].clientY - cameraOverlay.offsetTop;
-      } else {
-        initialX = e.clientX - cameraOverlay.offsetLeft;
-        initialY = e.clientY - cameraOverlay.offsetTop;
-      }
-    };
-    
-    const drag = (e) => {
-      if (!isDragging) return;
-      e.preventDefault();
-      
-      let currentX, currentY;
-      if (e.type === 'touchmove') {
-        currentX = e.touches[0].clientX - initialX;
-        currentY = e.touches[0].clientY - initialY;
-      } else {
-        currentX = e.clientX - initialX;
-        currentY = e.clientY - initialY;
-      }
-      
-      // 화면 경계 체크
-      const maxX = window.innerWidth - cameraOverlay.offsetWidth;
-      const maxY = window.innerHeight - cameraOverlay.offsetHeight;
-      currentX = Math.max(0, Math.min(currentX, maxX));
-      currentY = Math.max(0, Math.min(currentY, maxY));
-      
-      cameraOverlay.style.left = currentX + 'px';
-      cameraOverlay.style.top = currentY + 'px';
-      cameraOverlay.style.right = 'auto';
-    };
-    
-    const stopDrag = () => {
-      isDragging = false;
-      cameraOverlay.style.boxShadow = '0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(106,166,255,0.3)';
-    };
-    
-    cameraOverlay.addEventListener('mousedown', startDrag);
-    cameraOverlay.addEventListener('touchstart', startDrag, { passive: false });
-    document.addEventListener('mousemove', drag);
-    document.addEventListener('touchmove', drag, { passive: false });
-    document.addEventListener('mouseup', stopDrag);
-    document.addEventListener('touchend', stopDrag);
-    
-    // 리사이즈 핸들
-    const resizeHandle = document.createElement('div');
-    resizeHandle.style.cssText = `
-      position: absolute;
-      bottom: 0;
-      right: 0;
-      width: 20px;
-      height: 20px;
-      cursor: se-resize;
-      background: linear-gradient(135deg, transparent 50%, rgba(106,166,255,0.5) 50%);
-      border-radius: 0 0 12px 0;
-    `;
-    cameraOverlay.appendChild(resizeHandle);
-    
-    let isResizing = false;
-    resizeHandle.addEventListener('mousedown', (e) => {
-      e.stopPropagation();
-      isResizing = true;
-    });
-    
-    document.addEventListener('mousemove', (e) => {
-      if (!isResizing) return;
       const rect = cameraOverlay.getBoundingClientRect();
-      const newWidth = Math.max(160, e.clientX - rect.left);
-      const newHeight = Math.max(120, e.clientY - rect.top);
-      cameraOverlay.style.width = newWidth + 'px';
-      cameraOverlay.style.height = newHeight + 'px';
-    });
+      startX = e.touches[0].clientX - rect.left;
+      startY = e.touches[0].clientY - rect.top;
+      cameraOverlay.style.boxShadow = '0 12px 48px rgba(0,0,0,0.8), 0 0 0 2px rgba(106,166,255,0.6)';
+      cameraOverlay.style.transition = 'none';
+    }, { passive: true });
     
-    document.addEventListener('mouseup', () => {
-      isResizing = false;
+    // 마우스/터치 이동
+    const onMove = (clientX, clientY) => {
+      if (isDragging) {
+        let newLeft = clientX - startX;
+        let newTop = clientY - startY;
+        
+        // 화면 경계 체크 (자유 이동이지만 완전히 벗어나지 않게)
+        const maxX = window.innerWidth - 50;
+        const maxY = window.innerHeight - 36;
+        newLeft = Math.max(-cameraOverlay.offsetWidth + 50, Math.min(newLeft, maxX));
+        newTop = Math.max(0, Math.min(newTop, maxY));
+        
+        cameraOverlay.style.left = newLeft + 'px';
+        cameraOverlay.style.top = newTop + 'px';
+        cameraOverlay.style.right = 'auto';
+      }
+      
+      if (isResizing) {
+        const dx = clientX - startX;
+        const dy = clientY - startY;
+        let newWidth = startWidth;
+        let newHeight = startHeight;
+        let newLeft = startLeft;
+        let newTop = startTop;
+        
+        // 방향에 따른 크기 조절
+        if (resizeDirection.includes('e')) newWidth = Math.max(160, Math.min(startWidth + dx, window.innerWidth * 0.9));
+        if (resizeDirection.includes('w')) {
+          newWidth = Math.max(160, Math.min(startWidth - dx, window.innerWidth * 0.9));
+          newLeft = startLeft + (startWidth - newWidth);
+        }
+        if (resizeDirection.includes('s')) newHeight = Math.max(120, Math.min(startHeight + dy, window.innerHeight * 0.9));
+        if (resizeDirection.includes('n')) {
+          newHeight = Math.max(120, Math.min(startHeight - dy, window.innerHeight * 0.9));
+          newTop = startTop + (startHeight - newHeight);
+        }
+        
+        cameraOverlay.style.width = newWidth + 'px';
+        cameraOverlay.style.height = newHeight + 'px';
+        cameraOverlay.style.left = newLeft + 'px';
+        cameraOverlay.style.top = newTop + 'px';
+        cameraOverlay.style.right = 'auto';
+      }
+    };
+    
+    document.addEventListener('mousemove', (e) => onMove(e.clientX, e.clientY));
+    document.addEventListener('touchmove', (e) => {
+      if (isDragging || isResizing) {
+        e.preventDefault();
+        onMove(e.touches[0].clientX, e.touches[0].clientY);
+      }
+    }, { passive: false });
+    
+    // 드래그/리사이즈 종료
+    const onEnd = () => {
+      if (isDragging || isResizing) {
+        isDragging = false;
+        isResizing = false;
+        resizeDirection = '';
+        document.body.style.cursor = '';
+        cameraOverlay.style.boxShadow = '0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(106,166,255,0.3)';
+        cameraOverlay.style.transition = 'box-shadow 0.2s ease';
+      }
+    };
+    
+    document.addEventListener('mouseup', onEnd);
+    document.addEventListener('touchend', onEnd);
+    
+    // 더블클릭으로 기본 크기로 복원
+    header.addEventListener('dblclick', () => {
+      cameraOverlay.style.width = '320px';
+      cameraOverlay.style.height = '240px';
+      toast('기본 크기로 복원');
     });
   }
   
