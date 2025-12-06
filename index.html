@@ -472,9 +472,15 @@ if (roleInputs.length > 0) {
     r.addEventListener('change', ()=>{
       const checked = document.querySelector('input[name="role"]:checked');
       if (checked) role = checked.value;
-      // 교수 선택 시 사번 입력란 표시
+      // 교수 선택 시 사번 입력란 표시 및 기본값 자동 입력
       if (professorIdSection) {
         professorIdSection.style.display = role === 'professor' ? 'block' : 'none';
+      }
+      // 교수 선택 시 기본값 자동 입력
+      if (role === 'professor') {
+        if (userNameInput && !userNameInput.value.trim()) userNameInput.value = '최준일';
+        if (professorIdInput && !professorIdInput.value.trim()) professorIdInput.value = '19930007';
+        if (roomIdInput && !roomIdInput.value.trim()) roomIdInput.value = '청소년문화';
       }
       refreshUIByMode();
     });
