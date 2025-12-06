@@ -4581,6 +4581,19 @@ async function startStudent(){
 /* ---------------- Controls ---------------- */
 if (startBtn) startBtn.addEventListener('click', async ()=>{
   try{
+    // 교수 모드일 때 기본값 자동 입력 (테스트용)
+    if (role === 'professor') {
+      if (userNameInput && !userNameInput.value.trim()) {
+        userNameInput.value = '최준일';
+      }
+      if (professorIdInput && !professorIdInput.value.trim()) {
+        professorIdInput.value = '19930007';
+      }
+      if (roomIdInput && !roomIdInput.value.trim()) {
+        roomIdInput.value = '청소년문화';
+      }
+    }
+    
     if (role==='professor') await startProfessor(); else await startStudent();
   }catch(e){ alert('시작 실패: '+e.message); }
 });
