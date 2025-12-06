@@ -1027,8 +1027,85 @@ async function showCameraOverlay(cameraStreamToUse) {
     await overlayVideo.play();
     cameraOverlay.style.display = 'block';
     cameraOverlay.dataset.minimized = 'false';
+    
+    // 전체화면이 열려있으면 전체화면 안으로 이동
+    if (fullscreenVideo && fullscreenVideo.classList.contains('show')) {
+      moveCameraOverlayToFullscreen();
+    }
+    
     log('[Professor] 카메라 PiP 오버레이 표시 (Control Overlay Style)');
   }
+}
+
+// 카메라 오버레이를 전체화면으로 이동
+function moveCameraOverlayToFullscreen() {
+  const cameraOverlay = document.getElementById('professorCameraOverlay');
+  if (cameraOverlay && fullscreenVideo && fullscreenVideo.classList.contains('show')) {
+    // 현재 위치 저장
+    const rect = cameraOverlay.getBoundingClientRect();
+    cameraOverlay.dataset.savedLeft = cameraOverlay.style.left || (rect.left + 'px');
+    cameraOverlay.dataset.savedTop = cameraOverlay.style.top || (rect.top + 'px');
+    cameraOverlay.dataset.savedRight = cameraOverlay.style.right;
+    
+    // 전체화면 내부로 이동
+    fullscreenVideo.appendChild(cameraOverlay);
+    
+    // 위치 재설정 (전체화면 우측 상단)
+    cameraOverlay.style.top = '70px';
+    cameraOverlay.style.right = '20px';
+    cameraOverlay.style.left = 'auto';
+    
+    log('[Professor] 카메라 PiP를 전체화면으로 이동');
+  }
+}
+
+// 카메라 오버레이를 body로 복원
+function moveCameraOverlayToBody() {
+  const cameraOverlay = document.getElementById('professorCameraOverlay');
+  if (cameraOverlay && cameraOverlay.parentElement !== document.body) {
+    // body로 복원
+    document.body.appendChild(cameraOverlay);
+    
+    // 저장된 위치 복원
+    if (cameraOverlay.dataset.savedLeft) {
+      cameraOverlay.style.left = cameraOverlay.dataset.savedLeft;
+      cameraOverlay.style.top = cameraOverlay.dataset.savedTop;
+      if (cameraOverlay.dataset.savedRight) {
+        cameraOverlay.style.right = cameraOverlay.dataset.savedRight;
+      } else {
+        cameraOverlay.style.right = 'auto';
+      }
+    } else {
+      // 기본 위치
+      cameraOverlay.style.top = '20px';
+      cameraOverlay.style.right = '20px';
+      cameraOverlay.style.left = 'auto';
+    }
+    
+    log('[Professor] 카메라 PiP를 body로 복원');
+  }
+}
+
+// 전체화면 상태 변경 감지 (MutationObserver)
+if (fullscreenVideo) {
+  const fullscreenObserver = new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+      if (mutation.attributeName === 'class') {
+        const cameraOverlay = document.getElementById('professorCameraOverlay');
+        if (!cameraOverlay || cameraOverlay.style.display === 'none') return;
+        
+        if (fullscreenVideo.classList.contains('show')) {
+          // 전체화면 열림 - 카메라 오버레이 이동
+          moveCameraOverlayToFullscreen();
+        } else {
+          // 전체화면 닫힘 - 카메라 오버레이 복원
+          moveCameraOverlayToBody();
+        }
+      }
+    });
+  });
+  
+  fullscreenObserver.observe(fullscreenVideo, { attributes: true });
 }
 
 // PiP 종료 감지
@@ -1410,6 +1487,8 @@ fsCloseBtn.addEventListener('click', () => {
     fullscreenVideo.classList.remove('show');
     fsVideo.srcObject = null;
     fsVideo.pause();
+    // 카메라 PiP 오버레이를 body로 복원
+    moveCameraOverlayToBody();
   } catch(e) {
     console.error('Fullscreen close error:', e);
   }
